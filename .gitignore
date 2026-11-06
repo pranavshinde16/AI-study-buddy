@@ -1,0 +1,45 @@
+# --- Private development log: NEVER commit or push ---
+dev-log/
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Runtime data (uploads, audio, vectors) ---
+storage/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# --- Node / frontend ---
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+
+# --- Fine-tuning artefacts (large binaries) ---
+*.gguf
+*.safetensors
+finetune/outputs/
+finetune/checkpoints/
+
+# --- Claude Code machine-local settings ---
+.claude/settings.local.json
+
+# --- Editors / OS ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db

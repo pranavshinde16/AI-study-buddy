@@ -1,0 +1,24 @@
+# Phase 2: database only. Backend, frontend and Ollama services are added in Phase 12.
+#   Start:  docker compose up -d db
+#   Stop:   docker compose down        (add -v to also delete the data volume)
+services:
+  db:
+    image: postgres:16
+    container_name: studybuddy-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-studybuddy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-studybuddy}
+      POSTGRES_DB: ${POSTGRES_DB:-studybuddy}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-studybuddy} -d ${POSTGRES_DB:-studybuddy}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

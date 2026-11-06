@@ -1,0 +1,82 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Design tokens (§9): indigo-600 primary, slate neutrals, emerald/amber/rose status colours.
+   Values are Tailwind v4's own palette (oklch). shadcn/ui components read these variables. */
+:root {
+  --radius: 1rem;
+
+  --background: oklch(0.984 0.003 247.858);          /* slate-50 */
+  --foreground: oklch(0.208 0.042 265.755);          /* slate-900 */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.208 0.042 265.755);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.208 0.042 265.755);
+  --primary: oklch(0.511 0.262 276.966);             /* indigo-600 */
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.968 0.007 247.896);           /* slate-100 */
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);    /* slate-500 */
+  --accent: oklch(0.962 0.018 272.314);              /* indigo-50 */
+  --accent-foreground: oklch(0.398 0.195 277.366);   /* indigo-800 */
+  --destructive: oklch(0.586 0.253 17.585);          /* rose-600 */
+  --success: oklch(0.596 0.145 163.225);             /* emerald-600 */
+  --warning: oklch(0.666 0.179 58.318);              /* amber-600 */
+  --border: oklch(0.929 0.013 255.508);              /* slate-200 */
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.585 0.233 277.117);                /* indigo-500 */
+
+  /* Dark sidebar */
+  --sidebar: oklch(0.208 0.042 265.755);             /* slate-900 */
+  --sidebar-foreground: oklch(0.869 0.022 252.894);  /* slate-300 */
+  --sidebar-accent: oklch(0.279 0.041 260.031);      /* slate-800 */
+  --sidebar-accent-foreground: oklch(1 0 0);
+  --sidebar-primary: oklch(0.585 0.233 277.117);     /* indigo-500 */
+  --sidebar-border: oklch(0.279 0.041 260.031);
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: calc(var(--radius) - 8px);
+  --radius-md: calc(var(--radius) - 6px);
+  --radius-lg: calc(var(--radius) - 4px);
+  --radius-xl: var(--radius);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-border: var(--sidebar-border);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}

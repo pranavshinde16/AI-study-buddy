@@ -1,0 +1,11 @@
+# Runtime (versions pinned; checked for compatibility Nov 2026, each release >= 2 weeks old)
+fastapi==0.161.1            # web framework + OpenAPI/Swagger at /docs
+starlette==1.9.0            # ASGI toolkit under FastAPI (pinned: 1.10.0 was < 2 weeks old)
+uvicorn[standard]==0.54.0   # ASGI server that runs the app
+pydantic==2.14.1            # request/response validation
+pydantic-settings==2.16.1   # typed settings loaded from .env / environment
+python-dotenv==1.2.2        # .env file parsing (used by pydantic-settings)
+
+# Dev / test
+pytest==9.1.1               # test runner
+httpx==0.28.1               # HTTP client used by FastAPI's TestClient
