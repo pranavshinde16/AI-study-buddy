@@ -22,6 +22,27 @@ structlog==26.1.0           # structured JSON logs
 pyyaml==6.0.3               # prompt registry + pricing.yaml
 openai==3.37.0              # OpenAI-compatible client, used for Groq / OpenAI / Ollama via base_url
 
+# Local embeddings (Phase 6 short-answer grading fallback; Phase 7 RAG). Free, no API key.
+# The model (BAAI/bge-small-en-v1.5, ~130 MB) downloads on first use, not at install or startup.
+# Linux/Docker: install the CPU build of torch first to avoid ~2 GB of CUDA packages:
+#   pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+sentence-transformers==6.2.0  # runs the embedding model
+torch==2.14.1               # neural-network runtime used by sentence-transformers (2.15.0 was < 2 weeks old)
+transformers==5.20.2        # model/tokenizer loading (5.21+ were < 2 weeks old)
+huggingface-hub==2.3.0      # downloads the model from Hugging Face (2.4.0 was < 2 weeks old)
+tokenizers==0.23.3          # fast tokenizer used by transformers
+safetensors==0.8.0          # model weight file format
+numpy==2.5.4                # vectors
+scikit-learn==1.9.1         # required by sentence-transformers
+scipy==1.18.1               # required by sentence-transformers
+# Transitive dependencies pinned because their newest releases were < 2 weeks old:
+regex==2026.9.29
+hf-xet==1.7.0
+typer==0.27.3
+threadpoolctl==3.7.0
+narwhals==2.27.1
+filelock==4.2.4
+
 # Dev / test
 pytest==9.1.1               # test runner
 httpx==0.28.1               # HTTP client used by FastAPI's TestClient

@@ -30,6 +30,13 @@ def test_upgrade_creates_all_model_tables_and_downgrade_removes_them(tmp_path):
         "error_type", "error_message", "request_hash",
     } <= llm_cols  # every field listed in IMPLEMENTATION_PLAN §7.1
 
+    def cols(table: str) -> set[str]:
+        return {c["name"] for c in inspect(engine).get_columns(table)}
+
+    # Phase 6 migration
+    assert "rubric_json" in cols("quiz_questions") and "score" in cols("attempt_answers")
+    assert {"kind", "source_start"} <= cols("flashcards")
+
     command.downgrade(cfg, "base")
     assert set(inspect(engine).get_table_names()) - {"alembic_version"} == set()
     engine.dispose()

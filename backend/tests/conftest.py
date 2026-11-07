@@ -1,5 +1,6 @@
 """Shared test fixtures. Tests use in-memory SQLite and fake LLM providers: no network, no Postgres."""
 
+import random
 from collections.abc import Iterator
 
 import pytest
@@ -12,18 +13,28 @@ from sqlalchemy.pool import StaticPool
 import app.models  # noqa: F401  (register all tables)
 from app.core.config import Settings, get_settings
 from app.db.base import Base
-from app.api.deps import get_generator_dep, get_pipeline_dep
+from app.api.deps import (
+    get_flashcard_generator_dep,
+    get_generator_dep,
+    get_grader_dep,
+    get_pipeline_dep,
+    get_quiz_generator_dep,
+)
 from app.db.session import get_db
 from app.main import create_app
 from app.services.asr.client import ASRClient
+from app.services.embeddings import EmbeddingClient
+from app.services.generation.flashcards import FlashcardGenerator
+from app.services.generation.quiz import QuizGenerator
 from app.services.generation.summary import LectureGenerator
+from app.services.grading import ShortAnswerGrader
 from app.services.llm.client import LLMClient
 from app.services.llm.pricing import load_pricing
 from app.services.llm.prompts import PromptRegistry
 from app.services.media import media_from_settings
 from app.services.storage import LocalStorage
 from app.workers.pipeline import Pipeline
-from tests.fakes import FakeASRProvider, FakeLectureLLM, FakeProvider
+from tests.fakes import FakeASRProvider, FakeEmbedder, FakeLectureLLM, FakeProvider
 
 
 @pytest.fixture(autouse=True)
@@ -133,12 +144,38 @@ def generator(settings, lecture_llm_client) -> LectureGenerator:
 
 
 @pytest.fixture
+def fake_embedder() -> FakeEmbedder:
+    """Bag-of-words vectors; set `.fail = SomeError()` to make embedding fail."""
+    return FakeEmbedder()
+
+
+@pytest.fixture
+def embedding_client(settings, session_factory, fake_embedder) -> EmbeddingClient:
+    return EmbeddingClient(settings, session_factory, load_pricing(), embedder=fake_embedder)
+
+
+@pytest.fixture
+def quiz_generator(settings, lecture_llm_client) -> QuizGenerator:
+    return QuizGenerator(settings, lecture_llm_client, rng=random.Random(0))
+
+
+@pytest.fixture
+def grader(settings, lecture_llm_client, embedding_client) -> ShortAnswerGrader:
+    return ShortAnswerGrader(settings, lecture_llm_client, embedding_client)
+
+
+@pytest.fixture
+def flashcard_generator(settings, lecture_llm_client) -> FlashcardGenerator:
+    return FlashcardGenerator(settings, lecture_llm_client)
+
+
+@pytest.fixture
 def pipeline(settings, session_factory, storage, asr_client, generator) -> Pipeline:
     return Pipeline(settings, session_factory, storage, media_from_settings(settings), asr_client, generator)
 
 
 @pytest.fixture
-def app(settings, session_factory, pipeline, generator) -> FastAPI:
+def app(settings, session_factory, pipeline, generator, quiz_generator, grader, flashcard_generator) -> FastAPI:
     application = create_app()
 
     def _get_db() -> Iterator[Session]:
@@ -149,6 +186,9 @@ def app(settings, session_factory, pipeline, generator) -> FastAPI:
     application.dependency_overrides[get_settings] = lambda: settings
     application.dependency_overrides[get_pipeline_dep] = lambda: pipeline
     application.dependency_overrides[get_generator_dep] = lambda: generator
+    application.dependency_overrides[get_quiz_generator_dep] = lambda: quiz_generator
+    application.dependency_overrides[get_grader_dep] = lambda: grader
+    application.dependency_overrides[get_flashcard_generator_dep] = lambda: flashcard_generator
     return application
 
 
@@ -173,3 +213,33 @@ def auth_headers(client, make_user):
     r = client.post("/api/auth/login", json={"email": "ada@example.com", "password": "correct-horse-battery"})
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+@pytest.fixture
+def make_ready_lecture(client, auth_headers, db):
+    """A lecture with a stored transcript whose summary + topic notes were generated through the
+    real POST /summarize path (fake LLM). With n=12 the notes have two topics:
+    "Topic 0" (segments 0-6) and "Topic 5" (segments 7-11). Segment i runs i*10 .. i*10+9.5 s."""
+    import uuid as _uuid
+
+    from app.models.lecture import Lecture, TranscriptSegment
+
+    def _make(n: int = 12, headers=None, summarize: bool = True) -> _uuid.UUID:
+        h = headers or auth_headers
+        me = client.get("/api/auth/me", headers=h).json()
+        lec = Lecture(user_id=_uuid.UUID(me["id"]), title="Cell energy", status="transcribed", progress=100,
+                      duration_sec=n * 10.0)
+        db.add(lec)
+        db.flush()
+        db.add_all(
+            TranscriptSegment(lecture_id=lec.id, idx=i, start_sec=i * 10.0, end_sec=i * 10.0 + 9.5,
+                              text=f"sentence {i} about how cells turn food into energy")
+            for i in range(n)
+        )
+        db.commit()
+        if summarize:
+            r = client.post(f"/api/lectures/{lec.id}/summarize", headers=h)
+            assert r.status_code == 200, r.text
+        return lec.id
+
+    return _make

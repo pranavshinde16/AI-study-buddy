@@ -2,7 +2,7 @@
 
 Base URL: `http://localhost:8000/api` · interactive docs: http://localhost:8000/docs (Swagger UI) · schema: `/openapi.json`.
 
-This page covers the endpoints implemented through **Phase 5**. The JSON below shows **shapes** with placeholder values, not real outputs.
+This page covers the endpoints implemented through **Phase 6**. The JSON below shows **shapes** with placeholder values, not real outputs.
 
 ## Conventions
 
@@ -28,6 +28,13 @@ This page covers the endpoints implemented through **Phase 5**. The JSON below s
 | GET | `/lectures/{id}/transcript/download?format=txt\|srt\|vtt` | File download | 200 |
 | POST | `/lectures/{id}/summarize` | Summary, takeaways, definitions, topic notes, revision notes (cached) | 200 |
 | GET | `/lectures/{id}/notes` | Topic-wise notes | 200 |
+| POST | `/lectures/{id}/generate-quiz` | Generate a quiz (answers hidden) | 201 |
+| GET | `/lectures/{id}/quizzes` | Your quizzes for the lecture, newest first | 200 |
+| GET | `/quizzes/{quiz_id}` | A quiz without its answers | 200 |
+| POST | `/quizzes/{quiz_id}/submit` | Grade, explain, update topic mastery | 200 |
+| POST | `/lectures/{id}/flashcards` | Generate the flashcard deck (cached) | 200 |
+| GET | `/lectures/{id}/flashcards?due=true` | The deck, optionally only cards due now | 200 |
+| POST | `/flashcards/{card_id}/review` | Record knew / didn't know (Leitner box) | 200 |
 
 ## Auth
 
@@ -128,20 +135,96 @@ An invalid format returns `422`.
 ```
 Errors: `409 NOTES_NOT_GENERATED` (call `POST /summarize`) and `409 GENERATION_IN_PROGRESS`.
 
+## Quizzes
+
+How questions are generated, validated and graded: [quizzes.md](quizzes.md). Quizzes and flashcards need the topic notes, so they return `409 NOTES_NOT_GENERATED` until `POST /summarize` has run.
+
+**POST `/lectures/{id}/generate-quiz`**: every field is optional.
+```json
+{ "num_questions": 10, "types": ["mcq", "true_false", "short_answer"], "difficulty": "medium", "topics": null, "adaptive": false }
+```
+`difficulty` is `easy | medium | hard | mixed`, and `topics` lists topic titles from `/notes` (null means all). → `201`
+```json
+{ "quiz_id": "<uuid>", "lecture_id": "<uuid>", "difficulty": "medium", "created_at": "…", "attempts": 0,
+  "questions": [
+    { "id": "q1", "type": "mcq", "difficulty": "medium", "topic": "…", "question": "…", "options": ["…", "…", "…", "…"] },
+    { "id": "q2", "type": "true_false", "difficulty": "medium", "topic": "…", "question": "…", "options": null }
+  ],
+  "meta": { "provider": "groq", "model": "openai/gpt-oss-120b", "prompt_version": "quiz@v1",
+            "requested": 10, "generated": 10, "invalid_items": 0, "invalid_reasons": {},
+            "regeneration_requests": 0, "batches": 1, "llm_calls": 1,
+            "input_tokens": 0, "output_tokens": 0, "llm_latency_ms": 0.0, "generated_at": "…" } }
+```
+- **Answers:** none are included here, and no explanations either. Each call creates a new quiz.
+- **Errors:**
+  - `422 VALIDATION_ERROR`: `num_questions` is above `QUIZ_MAX_QUESTIONS`, a type is unknown, or a topic is unknown (`details.available` lists the valid ones).
+  - `422 ADAPTIVE_NOT_AVAILABLE`: comes in Phase 9.
+  - `409 LECTURE_NOT_READY`, `409 NOTES_NOT_GENERATED`.
+  - `429 RATE_LIMITED`, `503 MODEL_UNAVAILABLE`.
+  - `502 QUIZ_GENERATION_FAILED`: no valid question at all.
+
+**GET `/quizzes/{quiz_id}`** returns the same shape, with `attempts` counting your submissions. **GET `/lectures/{id}/quizzes`** → `[{"quiz_id", "difficulty", "num_questions", "created_at", "attempts", "best_percent"}]`.
+
+**POST `/quizzes/{quiz_id}/submit`**
+```json
+{ "answers": { "q1": "B", "q2": true, "q3": "free text" } }
+```
+- **MCQ:** a letter A–D or the option text.
+- **True/false:** a boolean, or the string `"true"` / `"false"`.
+- **Unanswered:** a missing question counts as wrong.
+
+```json
+{ "attempt_id": "<uuid>", "quiz_id": "<uuid>", "score": 7, "total": 10, "percent": 70.0,
+  "results": [ { "id": "q1", "type": "mcq", "topic": "…", "question": "…", "your_answer": "B", "correct": true,
+                 "score": 1.0, "correct_answer": "B", "explanation": "…", "timestamp": 845.0,
+                 "graded_by": "rule", "feedback": null } ],
+  "topics": [ { "topic": "…", "correct": 2, "total": 3, "mastery": 0.67 } ],
+  "weak_topics": ["…"], "suggested_next_difficulty": "medium" }
+```
+- **`graded_by`:**
+  - `rule` for MCQ and true/false.
+  - `llm` for short answers.
+  - `embedding` when the LLM grader failed and the similarity fallback was used.
+- **`timestamp`:** where the lecture covers the question.
+- **`mastery`:** the topic's moving average after this attempt.
+- **Errors:**
+  - `422 VALIDATION_ERROR`: `details.unknown` lists unknown question ids, `details.invalid` lists answers of the wrong type.
+  - `404 QUIZ_NOT_FOUND`.
+  - `503 GRADING_UNAVAILABLE`: the LLM grader and the embedding fallback both failed.
+
+## Flashcards
+
+**POST `/lectures/{id}/flashcards`**: the body is optional, default `{"regenerate": false}`.
+```json
+{ "lecture_id": "<uuid>", "total": 15, "due": 15, "cached": false,
+  "cards": [ { "id": "<uuid>", "kind": "concept", "front": "…?", "back": "…", "topic": "…", "timestamp": 47.0,
+               "box": 1, "due_at": "…", "due": true, "last_reviewed_at": null } ],
+  "meta": { "prompt_version": "flashcards@v1", "definition_cards": 0, "concept_cards": 15,
+            "dropped": { "duplicate": 0 }, "batches": 1, "llm_calls": 1, "...": "…" } }
+```
+- **`kind`:** `definition` cards come from the summary's definitions, with no LLM call. `concept` cards are written from the transcript.
+- **Cached deck:** a second call returns the stored deck with `"cached": true` and `"meta": null`.
+- **Regenerating:** `regenerate: true` replaces the deck and resets review progress.
+- **Errors:** as for quizzes.
+
+**GET `/lectures/{id}/flashcards?due=true`** returns the same shape without `cached` or `meta`. With `due=false` (the default) it returns every card.
+
+**POST `/flashcards/{card_id}/review`** `{"knew": true}` → the updated card. Knowing a card moves it up one box (at most 5). Box 2 is due again in 1 day, box 3 in 3 days, box 4 in 7 and box 5 in 14. Not knowing it sends the card back to box 1, due now. Errors: `404 FLASHCARD_NOT_FOUND`, `422 VALIDATION_ERROR`.
+
 ## Error codes
 
 | HTTP | Code | Meaning |
 |---|---|---|
 | 401 | `NOT_AUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVALID_CREDENTIALS`, `ACCOUNT_DISABLED` | Auth problems |
-| 404 | `NOT_FOUND`, `LECTURE_NOT_FOUND` | Unknown route, or not your lecture |
+| 404 | `NOT_FOUND`, `LECTURE_NOT_FOUND`, `QUIZ_NOT_FOUND`, `FLASHCARD_NOT_FOUND` | Unknown route, or not yours |
 | 409 | `EMAIL_TAKEN`, `LECTURE_NOT_READY`, `GENERATION_IN_PROGRESS`, `NOTES_NOT_GENERATED` | State conflicts |
 | 413 | `FILE_TOO_LARGE` | Upload over `MAX_UPLOAD_MB` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Not MP3/WAV/MP4/M4A or no audio track |
-| 422 | `VALIDATION_ERROR`, `TRANSCRIPT_EMPTY`, `MEDIA_ERROR` | Bad input / nothing to process |
+| 422 | `VALIDATION_ERROR`, `TRANSCRIPT_EMPTY`, `MEDIA_ERROR`, `ADAPTIVE_NOT_AVAILABLE` | Bad input / nothing to process |
 | 429 | `RATE_LIMITED` | Provider rate limit after retries (`Retry-After` header when known) |
 | 500 | `INTERNAL_ERROR` | Unexpected; `details.error_type` names the exception |
-| 502 | `LLM_ERROR`, `LLM_OUTPUT_INVALID` | Provider error / invalid JSON twice |
-| 503 | `MODEL_UNAVAILABLE`, `PROVIDER_NOT_CONFIGURED`, `FFMPEG_NOT_FOUND` | Model or tool not available |
+| 502 | `LLM_ERROR`, `LLM_OUTPUT_INVALID`, `QUIZ_GENERATION_FAILED` | Provider error / invalid JSON twice / no valid question |
+| 503 | `MODEL_UNAVAILABLE`, `PROVIDER_NOT_CONFIGURED`, `FFMPEG_NOT_FOUND`, `GRADING_UNAVAILABLE` | Model or tool not available |
 
 ## Try it with curl
 
@@ -158,4 +241,4 @@ curl -s "http://localhost:8000/api/lectures/<id>/transcript/download?format=srt"
 ```
 PowerShell token: `$TOKEN = (Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/auth/login -ContentType application/json -Body '{"email":"ada@example.com","password":"correct-horse-battery"}').access_token`.
 
-The complete scripted flows are in `backend/scripts/manual_phase4.*` and `manual_phase5.*`.
+The complete scripted flows are in `backend/scripts/manual_phase4.*`, `manual_phase5.*` and `manual_phase6.*`.

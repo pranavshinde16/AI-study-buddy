@@ -1,6 +1,6 @@
 # Architecture
 
-This page describes the backend as built through **Phase 5** (upload, transcription, summary and notes). Parts that later phases add are marked *(planned)*. The full design and phase plan live in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
+This page describes the backend as built through **Phase 6** (upload, transcription, summary and notes, quizzes with grading and mastery, flashcards). Parts that later phases add are marked *(planned)*. The full design and phase plan live in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
 
 ## 1. System overview
 
@@ -17,6 +17,11 @@ flowchart LR
     P --> MED["ffmpeg / ffprobe<br/>services/media.py"]
     P --> GEN["Summary generator<br/>services/generation/summary.py"]
     GEN --> LLM
+    S --> QG["Quiz + flashcard generators<br/>services/generation/quiz.py, flashcards.py"]
+    QG --> LLM
+    S --> GR["Grader<br/>services/grading.py"]
+    GR --> LLM
+    GR -. fallback .-> EMB["Embedding client (local bge-small)<br/>services/embeddings.py"]
   end
   DB[("PostgreSQL 16")]
   FS[("storage/<br/>uploads + temporary audio")]
@@ -46,7 +51,7 @@ Dashed arrows are used only when you configure them explicitly. The app **never 
 | Routers | `app/api/routers/` | HTTP only: parse and validate input, call a service, shape the response. No business logic. |
 | Dependencies | `app/api/deps.py` | DB session, settings, current user (JWT), storage, ffmpeg wrapper, pipeline, generator. Tests override these. |
 | Schemas | `app/schemas/` | Pydantic request/response models (shown in Swagger). |
-| Services | `app/services/` | Business logic: `auth`, `lectures`, `summaries`, `storage`, `media`, `transcript_format`, `asr/`, `llm/`, `generation/`. |
+| Services | `app/services/` | Business logic: `auth`, `lectures`, `summaries`, `quizzes`, `grading`, `flashcards`, `embeddings`, `storage`, `media`, `transcript_format`, `asr/`, `llm/`, `generation/` (summary, quiz, flashcards, shared transcript batches in `context.py`). |
 | Worker | `app/workers/pipeline.py` | The lecture pipeline, run by FastAPI `BackgroundTasks`. |
 | Models | `app/models/` | SQLAlchemy 2 tables; migrations in `alembic/versions/`. |
 | Core | `app/core/` | Settings (`config.py`), error envelope, structlog logging, request-id middleware, password hashing and JWT. |
@@ -122,17 +127,19 @@ stateDiagram-v2
 2. **The LLM never writes times.** Prompts show the transcript as `[segment id] text` lines and ask for segment ids. The app converts ids to times by looking up the stored segments; ids outside the window are clamped to it, and a definition with an invalid id gets `timestamp: null`.
 3. **Only the transcript is used.** Each prompt tells the model to use only the transcript, add no outside knowledge, and write `(not stated in lecture)` where the lecturer left something incomplete.
 4. **Prompts are versioned.** Every call logs `prompt_id@version`, so results can be traced to the exact prompt.
+5. **Quiz questions and flashcards are checked by the app.** Their topic and timestamp come from the segment id the model cites. An item that cites a segment outside its batch, or fails any other check, is discarded: questions are regenerated, while cards are just dropped.
 
-Details: [summarization.md](summarization.md).
+Details: [summarization.md](summarization.md) and [quizzes.md](quizzes.md).
 
 ## 5. Model calls and LLMOps logging
 
-All model calls go through two wrappers. No other code calls an SDK directly.
+All model calls go through three wrappers. No other code calls an SDK or model directly.
 
 | Wrapper | Used for | Providers |
 |---|---|---|
-| `services/llm/client.py` → `LLMClient.complete()` | topics, notes, summary (later: quiz, RAG, judge) | `groq` (default), `openai` (opt-in), `ollama` (Phase 10) |
+| `services/llm/client.py` → `LLMClient.complete()` | topics, notes, summary, quiz, short-answer grading, flashcards (later: RAG) | `groq` (default), `openai` (opt-in), `ollama` (Phase 10) |
 | `services/asr/client.py` → `ASRClient.transcribe_chunk()` | speech-to-text | `groq` (default), `openai` (opt-in), `local` (faster-whisper, optional) |
+| `services/embeddings.py` → `EmbeddingClient.embed()` | short-answer grading fallback (later: RAG) | `local` (sentence-transformers, loaded on first use) |
 
 What the LLM client does for each request:
 
@@ -153,10 +160,14 @@ Cost comes from `backend/config/pricing.yaml`: `free_tier` and `local` providers
 | `lectures` | upload, pipeline | title, file info, duration, language, status, progress, stage detail, error |
 | `transcript_segments` | pipeline | `idx`, `start_sec`, `end_sec`, `text` (merged, continuous timeline) |
 | `lecture_outputs` | summaries service | `kind=summary` and `kind=notes` JSON, prompt version, model (the cache for `/summarize`) |
-| `llm_calls` | LLM + ASR clients | one row per model request (kept when a lecture is deleted: `lecture_id` set to NULL) |
+| `quizzes`, `quiz_questions` | quizzes service | request settings + generation meta; questions with answer, explanation, rubric (key points), `source_start` |
+| `quiz_attempts`, `attempt_answers` | quizzes service | score/percent per submission; per question: response, correct, score, `graded_by`, feedback |
+| `topic_mastery` | quizzes service | per user + lecture + topic: moving-average mastery and question count |
+| `flashcards` | flashcards service | front, back, kind (definition/concept), topic, `source_start`, Leitner box, `due_at` |
+| `llm_calls` | LLM, ASR and embedding clients | one row per model request (kept when a lecture is deleted: `lecture_id` set to NULL) |
 | `pipeline_runs` | pipeline | one row per stage with duration and audio seconds |
 
-Other tables (chunks, quizzes, flashcards, chat, eval) exist from the Phase 3 migration and are filled by later phases.
+Other tables (chunks, chat, eval) exist from the Phase 3 migration and are filled by later phases.
 
 Files on disk (`STORAGE_DIR`, gitignored):
 
@@ -179,9 +190,12 @@ All settings are read by `app/core/config.py` from environment variables or the 
 | `SUMMARY_WINDOW_SEC`, `SUMMARY_WINDOW_MAX_TOKENS` | 600, 2500 | Window size for map-reduce |
 | `GROQ_TOKENS_PER_MINUTE` | 8000 | Client-side pacing; 0 turns it off |
 | `LLM_REASONING_EFFORT` | `low` | Fewer hidden reasoning tokens on gpt-oss |
+| `QUIZ_CONTEXT_MAX_TOKENS`, `QUIZ_MAX_REGEN_ROUNDS` | 2500, 2 | Transcript per quiz/flashcard request; retries for invalid questions |
+| `SHORT_ANSWER_SIM_THRESHOLD` | 0.85 | Embedding-fallback bar for a correct short answer |
+| `MASTERY_EMA_ALPHA`, `MASTERY_WEAK_THRESHOLD` | 0.3, 0.6 | Mastery moving average; weak-topic cut-off |
 
 ## 8. Testing approach
 
-- `pytest` runs on in-memory SQLite with fake providers (`tests/fakes.py`): `FakeASRProvider` for speech and `FakeLectureLLM` for the topics/notes/summary prompts. An autouse fixture fails any test that opens a non-loopback network connection.
+- `pytest` runs on in-memory SQLite with fake providers (`tests/fakes.py`): `FakeASRProvider` for speech, `FakeLectureLLM` for the topics/notes/summary/quiz/grading/flashcard prompts (it can inject invalid quiz items to test regeneration), and `FakeEmbedder` (bag-of-words vectors, so the embedding model is never downloaded in tests). An autouse fixture fails any test that opens a non-loopback network connection.
 - Media tests generate short tones and tiny videos with ffmpeg (`tests/fixtures/audio.py`) and are skipped if ffmpeg is not installed.
-- Real-provider checks are manual: `scripts/llm_smoke.py`, `scripts/manual_phase4.*`, `scripts/manual_phase5.*`.
+- Real-provider checks are manual: `scripts/llm_smoke.py`, `scripts/embedding_smoke.py`, `scripts/manual_phase4.*`, `scripts/manual_phase5.*`, `scripts/manual_phase6.*`.

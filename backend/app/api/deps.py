@@ -14,7 +14,10 @@ from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.user import User
 from app.services.auth import get_active_user
+from app.services.generation.flashcards import FlashcardGenerator, get_flashcard_generator
+from app.services.generation.quiz import QuizGenerator, get_quiz_generator
 from app.services.generation.summary import LectureGenerator, get_lecture_generator
+from app.services.grading import ShortAnswerGrader, get_short_answer_grader
 from app.services.media import Media, media_from_settings
 from app.services.storage import StorageService, storage_from_settings
 from app.workers.pipeline import Pipeline, get_pipeline
@@ -63,6 +66,19 @@ def get_generator_dep() -> LectureGenerator:
     return get_lecture_generator()
 
 
+def get_quiz_generator_dep() -> QuizGenerator:
+    return get_quiz_generator()
+
+
+def get_grader_dep() -> ShortAnswerGrader:
+    """The embedding model inside is loaded only when the fallback is first needed."""
+    return get_short_answer_grader()
+
+
+def get_flashcard_generator_dep() -> FlashcardGenerator:
+    return get_flashcard_generator()
+
+
 def get_pipeline_dep() -> Pipeline:
     """Overridden in tests with a pipeline that uses the test DB and a fake ASR provider."""
     return get_pipeline()
@@ -72,3 +88,6 @@ Storage = Annotated[StorageService, Depends(get_storage_dep)]
 MediaTools = Annotated[Media, Depends(get_media_dep)]
 LecturePipeline = Annotated[Pipeline, Depends(get_pipeline_dep)]
 Generator = Annotated[LectureGenerator, Depends(get_generator_dep)]
+QuizGen = Annotated[QuizGenerator, Depends(get_quiz_generator_dep)]
+Grader = Annotated[ShortAnswerGrader, Depends(get_grader_dep)]
+FlashcardGen = Annotated[FlashcardGenerator, Depends(get_flashcard_generator_dep)]

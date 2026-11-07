@@ -499,6 +499,17 @@ Flashcards: generate a deck (definitions + concepts, no duplicates), review endp
 ```
 **Checks:** a generated quiz has no invalid items · submitting returns a score and explanations · mastery rows update.
 
+*Phase 6 changes:*
+- **Quiz requests:** each request gets a batch of topics capped at `QUIZ_CONTEXT_MAX_TOKENS=2500` (free-tier TPM). The app plans numbered slots (type and difficulty) and validates every item. Invalid or missing slots are requested again up to `QUIZ_MAX_REGEN_ROUNDS=2` times; if some still fail, the quiz is saved with fewer questions and `meta` records why.
+- **Topics and timestamps:** they come from the segment id the model cites, never from the model itself.
+- **Embedding wrapper:** `services/embeddings.py` (bge-small, loaded lazily as a singleton, logged to `llm_calls`) was pulled forward from Phase 7 for the short-answer fallback. Its threshold is `SHORT_ANSWER_SIM_THRESHOLD=0.85`, because bge-small scores unrelated sentences around 0.75.
+- **Flashcards:** definition cards are built from the Phase 5 definitions without an LLM call.
+- **Leitner intervals:** box 1 is due now, then 1, 3, 7 and 14 days.
+- **New columns:** `quiz_questions.rubric_json`, `attempt_answers.score`, `flashcards.kind` and `flashcards.source_start`.
+- **Adaptive quizzes:** `adaptive=true` returns 422 until Phase 9.
+
+Design: [docs/quizzes.md](docs/quizzes.md).
+
 ### Phase 7: RAG doubt solver and chat
 ```
 Implement Phase 7: chunking.py (segment windows of about 350 words / 90 s with about 15% overlap, keeping start/end), embeddings.py (bge-small singleton, normalized), vectorstore.py (Chroma persistent, collection per environment, metadata lecture_id).
@@ -587,7 +598,7 @@ Then draft the technical report as a Word document, using only real results.
 - [x] Phase 3: Backend core + database
 - [x] Phase 4: Upload & transcription
 - [x] Phase 5: Summary & notes
-- [ ] Phase 6: Quiz & flashcards
+- [x] Phase 6: Quiz & flashcards
 - [ ] Phase 7: RAG & chat
 - [ ] Phase 8: Frontend
 - [ ] Phase 9: Learning features

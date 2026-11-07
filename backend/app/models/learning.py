@@ -35,6 +35,7 @@ class QuizQuestion(UUIDPrimaryKey, Base):
     answer: Mapped[Any] = mapped_column(JSONType)  # option letter, bool, or reference text
     explanation: Mapped[str | None] = mapped_column(Text)
     source_start: Mapped[float | None] = mapped_column(Float)  # seconds, from transcript segments
+    rubric_json: Mapped[list[str] | None] = mapped_column(JSONType)  # short_answer: key points to grade against
 
 
 class QuizAttempt(UUIDPrimaryKey, Base):
@@ -57,6 +58,7 @@ class AttemptAnswer(UUIDPrimaryKey, Base):
     question_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("quiz_questions.id", ondelete="CASCADE"))
     response: Mapped[Any] = mapped_column(JSONType)
     correct: Mapped[bool] = mapped_column(Boolean)
+    score: Mapped[float | None] = mapped_column(Float)  # 0..1 (partial credit for short answers)
     graded_by: Mapped[str] = mapped_column(String(32))  # rule | llm | embedding
     feedback: Mapped[str | None] = mapped_column(Text)
 
@@ -69,6 +71,8 @@ class Flashcard(UUIDPrimaryKey, CreatedAt, Base):
     front: Mapped[str] = mapped_column(Text)
     back: Mapped[str] = mapped_column(Text)
     topic: Mapped[str | None] = mapped_column(String(300))
+    kind: Mapped[str] = mapped_column(String(16), default="concept", server_default="concept")  # definition | concept
+    source_start: Mapped[float | None] = mapped_column(Float)  # seconds, from transcript segments
     box: Mapped[int] = mapped_column(Integer, default=1)  # Leitner box 1..5
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -72,8 +72,20 @@ class Settings(BaseSettings):
     summary_window_sec: int = 600  # target window length for map-reduce (~10 min)
     summary_window_max_tokens: int = 2500  # hard cap per window so one request fits the free-tier TPM
 
-    # --- Retrieval ---
-    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    # --- Quiz, grading & flashcards (Phase 6) ---
+    quiz_max_questions: int = 20  # upper limit for num_questions in one quiz
+    quiz_context_max_tokens: int = 2500  # transcript sent per quiz/flashcard request (free-tier TPM)
+    quiz_max_regen_rounds: int = 2  # extra requests to replace questions that failed validation
+    # Embedding fallback: cosine >= this counts as correct. bge-small scores even unrelated sentences
+    # around 0.75 (see `python -m scripts.embedding_smoke`), so the bar has to be high. Not tuned yet.
+    short_answer_sim_threshold: float = 0.85
+    mastery_ema_alpha: float = 0.3  # weight of the newest quiz result in topic mastery
+    mastery_weak_threshold: float = 0.6  # topics below this mastery are reported as weak
+    flashcards_max_cards: int = 30  # cards per generated deck (definitions + concepts)
+
+    # --- Embeddings & retrieval ---
+    embedding_model: str = "BAAI/bge-small-en-v1.5"  # loaded on first use, not at startup
+    embedding_device: str = "cpu"  # cpu | cuda
     chroma_dir: str = "../storage/chroma"
     rag_top_k: int = 5
     rag_min_score: float = 0.35

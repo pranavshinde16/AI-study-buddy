@@ -4,10 +4,10 @@ A web app that turns recorded lectures into transcripts, notes, quizzes, flashca
 
 - **Design and phase plan:** [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 - **Rules for contributors and Claude Code:** [CLAUDE.md](CLAUDE.md)
-- **Docs:** [architecture](docs/architecture.md) · [REST API](docs/api.md) · [summary & notes](docs/summarization.md)
+- **Docs:** [architecture](docs/architecture.md) · [REST API](docs/api.md) · [summary & notes](docs/summarization.md) · [quizzes & flashcards](docs/quizzes.md)
 - **Runs on free tiers by default:** Groq for speech recognition (`whisper-large-v3-turbo`) and the LLM (`openai/gpt-oss-120b`, an open-weight model hosted on Groq). OpenAI is optional and only used if you set it explicitly.
 
-> Status: Phase 5 (summary & notes). Upload a lecture recording; a background pipeline extracts the audio with ffmpeg, transcribes it with Groq Whisper, then writes a summary, key takeaways, definitions, topic-wise notes and revision notes with Groq `gpt-oss-120b`, all from the transcript only and with timestamps taken from the transcript. Everything runs on free tiers. The frontend is still an app shell with placeholder pages.
+> Status: Phase 6 (quiz & flashcards). Upload a lecture recording; a background pipeline extracts the audio with ffmpeg, transcribes it with Groq Whisper, then writes a summary, key takeaways, definitions, topic-wise notes and revision notes with Groq `gpt-oss-120b`, all from the transcript only and with timestamps taken from the transcript. You can then generate validated quizzes (MCQ, true/false, short answer), get them graded with explanations and per-topic mastery, and study a flashcard deck with Leitner-box reviews. Everything runs on free tiers. The frontend is still an app shell with placeholder pages.
 
 ## Stack
 FastAPI · Pydantic v2 · PostgreSQL 16 (Docker) · React 18 + Vite + TypeScript · Tailwind CSS v4 · shadcn/ui · React Router
@@ -94,6 +94,17 @@ The script registers a test account, uploads the file, polls `GET /api/lectures/
 | `.\scripts\manual_phase5.ps1 -LectureId <id> -Regenerate` | `LECTURE_ID=<id> REGENERATE=true bash scripts/manual_phase5.sh` |
 
 It prints the summary, takeaways, definitions and topics with their timestamps, then calls `POST /api/lectures/{id}/summarize` a second time to show that the cached result returns instantly. In Swagger: `POST /api/lectures/{id}/summarize` and `GET /api/lectures/{id}/notes`. How it works: [docs/summarization.md](docs/summarization.md).
+
+**Try quizzes & flashcards:** on a lecture that is `ready`, run:
+
+| Windows (PowerShell) | macOS / Linux |
+|---|---|
+| `.\scripts\manual_phase6.ps1` | `bash scripts/manual_phase6.sh` |
+| `.\scripts\manual_phase6.ps1 -Interactive` (you type the answers) | `LECTURE_ID=<id> bash scripts/manual_phase6.sh` |
+
+It generates a quiz on your newest `ready` lecture and prints the questions, then submits answers and shows the score, explanations, timestamps, grader and topic mastery. After that it generates the flashcard deck and reviews one card. In Swagger: `POST /api/lectures/{id}/generate-quiz`, `POST /api/quizzes/{quiz_id}/submit`, `POST /api/lectures/{id}/flashcards`, `POST /api/flashcards/{card_id}/review`. How it works: [docs/quizzes.md](docs/quizzes.md).
+
+**Embedding model (local, free):** when the LLM grader is unavailable, short answers are graded by meaning similarity using `BAAI/bge-small-en-v1.5`. It downloads (~130 MB) and loads on first use, not at startup. To fetch it ahead of time and check it works, run `python -m scripts.embedding_smoke`. The `pip install -r requirements.txt` step now includes PyTorch (CPU), which takes a few minutes. **Linux/Docker:** run `pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu` first, to avoid ~2 GB of CUDA packages. On Windows, Hugging Face may warn that symlinks are unsupported. The warning is harmless; set `HF_HUB_DISABLE_SYMLINKS_WARNING=1` to hide it.
 
 Offline speech recognition (optional): `pip install -r requirements-asr-local.txt` and set `ASR_PROVIDER=local` in `.env` (slower on CPU; the first run downloads the model).
 

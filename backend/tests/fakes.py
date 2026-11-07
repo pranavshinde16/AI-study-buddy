@@ -104,9 +104,21 @@ class FakeLectureLLM:
         self.user_messages: list[str] = []
         self.fail: dict[str, ProviderError] = {}
         self.invalid: dict[str, bool] = {}
+        # Phase 6: defects applied to the items of the NEXT quiz call, one per item, in order
+        # (see _quiz_item); "always_invalid" makes every quiz item invalid on every call.
+        self.quiz_defects: list[str] = []
+        self.quiz_always_invalid = False
+        self.grading_skip: set[str] = set()  # item ids the fake grader leaves out
+        self._quiz_calls = 0
 
     @staticmethod
     def task_of(system: str) -> str:
+        if '"slot"' in system:
+            return "quiz"
+        if '"grades"' in system:
+            return "grading"
+        if '"front"' in system:
+            return "flashcards"
         if '"start_segment"' in system:
             return "topics"
         if '"notes_md"' in system:
@@ -143,6 +155,111 @@ class FakeLectureLLM:
         elif task == "summary":
             body = {"summary": "The lecture covers the topics.", "key_takeaways": ["Takeaway one", "Takeaway two"],
                     "revision_notes_md": "- revise **this**"}
+        elif task == "quiz":
+            body = self._quiz(user)
+        elif task == "grading":
+            body = self._grades(user)
+        elif task == "flashcards":
+            body = self._cards(user)
         else:
             body = {}
         return ok(json.dumps(body), model_version="openai/gpt-oss-120b", inp=300, out=120)
+
+    # ------------------------------------------------------------------ Phase 6 tasks
+
+    _SLOT = re.compile(r"- slot (\d+): (\w+), (\w+)")
+
+    def _quiz(self, user: str) -> dict:
+        self._quiz_calls += 1
+        lo, hi = (int(x) for x in _RANGE.search(user).groups())
+        defects, self.quiz_defects = list(self.quiz_defects), []
+        items = []
+        for i, (slot, qtype, _diff) in enumerate(self._SLOT.findall(user)):
+            seg = lo + (int(slot) - 1) % (hi - lo + 1)
+            item = self._quiz_item(int(slot), qtype, seg)
+            defect = "always_invalid" if self.quiz_always_invalid else (defects[i] if i < len(defects) else None)
+            if defect == "drop":
+                continue
+            items.append(self._apply_defect(item, defect, hi) if defect else item)
+        return {"questions": items}
+
+    def _quiz_item(self, slot: int, qtype: str, seg: int) -> dict:
+        q = f"Question {self._quiz_calls}.{slot}: what does segment {seg} explain?"
+        base = {"slot": slot, "type": qtype, "question": q, "explanation": f"Segment {seg} says so.",
+                "segment_id": seg, "options": [], "key_points": []}
+        if qtype == "mcq":
+            opts = [f"Choice {k} of {self._quiz_calls}.{slot}" for k in range(1, 5)]
+            return {**base, "options": opts, "answer": opts[1]}
+        if qtype == "true_false":
+            return {**base, "answer": True}
+        return {**base, "answer": "the reference answer about energy", "key_points": ["energy"]}
+
+    @staticmethod
+    def _apply_defect(item: dict, defect: str, hi: int) -> dict:
+        item = dict(item)
+        if defect in ("duplicate_options", "always_invalid") and item["type"] == "mcq":
+            item["options"] = [item["options"][0]] * 2 + item["options"][2:]
+        elif defect == "answer_not_in_options":
+            item["answer"] = "Something else entirely" if item["type"] != "true_false" else "maybe"
+        elif defect == "three_options":
+            item["options"] = item["options"][:3]
+        elif defect in ("segment_out_of_range", "always_invalid"):
+            item["segment_id"] = hi + 500
+        elif defect == "wrong_type":
+            item["type"] = "true_false" if item["type"] != "true_false" else "mcq"
+        elif defect == "unknown_slot":
+            item["slot"] = 99
+        return item
+
+    def _grades(self, user: str) -> dict:
+        items = json.loads(user.split("Items to grade (JSON):", 1)[1])
+        grades = []
+        for it in items:
+            if it["id"] in self.grading_skip:
+                continue
+            good = "energy" in it["student_answer"].lower()
+            grades.append({"id": it["id"], "score": 1.0 if good else 0.0, "correct": good,
+                           "feedback": "Covers the key point." if good else "Misses the key point."})
+        return {"grades": grades}
+
+    @staticmethod
+    def _cards(user: str) -> dict:
+        lo, hi = (int(x) for x in _RANGE.search(user).groups())
+        return {
+            "cards": [
+                {"front": f"How does part {lo} work?", "back": "As the lecturer explains.", "segment_id": lo},
+                {"front": f"how does PART {lo} work", "back": "Duplicate with other casing.", "segment_id": lo},
+                {"front": f"What is Term {lo}?", "back": "Duplicates a definition card.", "segment_id": lo},
+                {"front": "Where is this from?", "back": "Segment outside the batch.", "segment_id": hi + 100},
+                {"front": f"Why does segment {hi} matter?", "back": "Because it closes the part.", "segment_id": hi},
+            ]
+        }
+
+
+# ---------------------------------------------------------------------------- embeddings (Phase 6)
+
+import hashlib  # noqa: E402
+import math  # noqa: E402
+
+
+class FakeEmbedder:
+    """Deterministic bag-of-words vectors (64 dims, L2-normalised). No model, no download."""
+
+    model_name = "fake-embedder"
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+        self.fail: Exception | None = None
+
+    def encode(self, texts: list[str]) -> list[list[float]]:
+        self.calls.append(list(texts))
+        if self.fail is not None:
+            raise self.fail
+        out = []
+        for t in texts:
+            v = [0.0] * 64
+            for w in re.findall(r"[a-z0-9]+", t.lower()):
+                v[int(hashlib.md5(w.encode()).hexdigest(), 16) % 64] += 1.0
+            n = math.sqrt(sum(x * x for x in v)) or 1.0
+            out.append([x / n for x in v])
+        return out
