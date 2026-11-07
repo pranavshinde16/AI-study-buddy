@@ -170,3 +170,47 @@ def test_delete_removes_rows_and_files(client, auth_headers, tmp_path, settings,
     assert db.scalar(select(PipelineRun).where(PipelineRun.lecture_id == lid)) is None
     assert not (settings.storage_path / "uploads" / lecture_id).exists()
     assert client.get(f"/api/lectures/{lecture_id}", headers=auth_headers).status_code == 404
+
+
+@needs_ffmpeg
+def test_media_serves_the_recording_with_its_content_type(client, auth_headers, tmp_path, make_user):
+    src = make_tone(tmp_path / "Week 2.mp3", 3)
+    lecture_id = _upload(client, auth_headers, src, content_type="application/octet-stream").json()["lecture_id"]
+
+    r = client.get(f"/api/lectures/{lecture_id}/media", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "audio/mpeg"
+    assert r.headers["content-disposition"].startswith("inline")
+    assert r.content == src.read_bytes()
+
+    # Range requests work, so the browser could seek without the whole file.
+    part = client.get(f"/api/lectures/{lecture_id}/media", headers={**auth_headers, "Range": "bytes=0-9"})
+    assert part.status_code == 206 and part.content == src.read_bytes()[:10]
+
+    assert client.get(f"/api/lectures/{lecture_id}/media").status_code == 401
+    other = client.get(f"/api/lectures/{lecture_id}/media", headers=_login_other(client, make_user))
+    assert other.status_code == 404 and other.json()["error"]["code"] == "LECTURE_NOT_FOUND"
+
+
+@needs_ffmpeg
+def test_media_mp4_is_video(client, auth_headers, tmp_path):
+    r = _upload(client, auth_headers, make_video(tmp_path / "v.mp4", 2), content_type="video/mp4")
+    media = client.get(f"/api/lectures/{r.json()['lecture_id']}/media", headers=auth_headers)
+    assert media.status_code == 200 and media.headers["content-type"] == "video/mp4"
+
+
+@needs_ffmpeg
+def test_media_missing_file_returns_404(client, auth_headers, tmp_path, settings, db):
+    lecture_id = _upload(client, auth_headers, make_tone(tmp_path / "gone.mp3", 2)).json()["lecture_id"]
+    for f in (settings.storage_path / "uploads" / lecture_id).iterdir():
+        f.unlink()
+    r = client.get(f"/api/lectures/{lecture_id}/media", headers=auth_headers)
+    assert r.status_code == 404 and r.json()["error"]["code"] == "MEDIA_NOT_FOUND"
+
+    # A lecture row with no stored path at all.
+    me = client.get("/api/auth/me", headers=auth_headers).json()
+    lec = Lecture(user_id=uuid.UUID(me["id"]), title="No file", status="transcribed", progress=100)
+    db.add(lec)
+    db.commit()
+    r = client.get(f"/api/lectures/{lec.id}/media", headers=auth_headers)
+    assert r.status_code == 404 and r.json()["error"]["code"] == "MEDIA_NOT_FOUND"

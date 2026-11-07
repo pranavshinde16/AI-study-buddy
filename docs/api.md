@@ -2,7 +2,7 @@
 
 Base URL: `http://localhost:8000/api` · interactive docs: http://localhost:8000/docs (Swagger UI) · schema: `/openapi.json`.
 
-This page covers the endpoints implemented through **Phase 7**. The JSON below shows **shapes** with placeholder values, not real outputs.
+This page covers the endpoints implemented through **Phase 7**, plus `GET /lectures/{id}/media` (added in Phase 8 for the transcript player). The JSON below shows **shapes** with placeholder values, not real outputs.
 
 ## Conventions
 
@@ -26,6 +26,7 @@ This page covers the endpoints implemented through **Phase 7**. The JSON below s
 | DELETE | `/lectures/{id}` | Delete the lecture, its transcript, outputs and files | 204 |
 | GET | `/lectures/{id}/transcript` | Timestamped segments | 200 |
 | GET | `/lectures/{id}/transcript/download?format=txt\|srt\|vtt` | File download | 200 |
+| GET | `/lectures/{id}/media` | The original recording, for the media player | 200 / 206 |
 | POST | `/lectures/{id}/summarize` | Summary, takeaways, definitions, topic notes, revision notes (cached) | 200 |
 | GET | `/lectures/{id}/notes` | Topic-wise notes | 200 |
 | POST | `/lectures/{id}/generate-quiz` | Generate a quiz (answers hidden) | 201 |
@@ -97,6 +98,14 @@ Errors: `409 LECTURE_NOT_READY` before the transcript exists. Its `details` hold
 - `vtt`: WebVTT, `HH:MM:SS.mmm`
 
 An invalid format returns `422`.
+
+## Media
+
+**GET `/lectures/{id}/media`** returns the uploaded recording itself (`Content-Disposition: inline`), so the transcript page can play it and seek to a segment's timestamp.
+- **Content-Type** comes from the stored file's extension: `audio/mpeg` (mp3), `audio/wav` (wav), `video/mp4` (mp4), `audio/mp4` (m4a).
+- **Range requests** (`Range: bytes=…`) are supported and answered with `206 Partial Content`.
+- **Auth:** like every endpoint, it needs the Bearer header, so a plain `<audio src>` can't call it. The frontend fetches it with axios as a blob (only after the user presses play) and plays an object URL. That's fine for short demo lectures. Long recordings would need streaming with a short-lived media token instead.
+- **Errors:** `404 LECTURE_NOT_FOUND` (unknown or not yours), `404 MEDIA_NOT_FOUND` (the lecture has no stored file, or the file was removed from `storage/`).
 
 ## Summary and notes
 
@@ -259,7 +268,7 @@ How retrieval, the threshold, refusals and generators work: [rag.md](rag.md). Th
 | HTTP | Code | Meaning |
 |---|---|---|
 | 401 | `NOT_AUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVALID_CREDENTIALS`, `ACCOUNT_DISABLED` | Auth problems |
-| 404 | `NOT_FOUND`, `LECTURE_NOT_FOUND`, `QUIZ_NOT_FOUND`, `FLASHCARD_NOT_FOUND`, `CHAT_SESSION_NOT_FOUND` | Unknown route, or not yours |
+| 404 | `NOT_FOUND`, `LECTURE_NOT_FOUND`, `MEDIA_NOT_FOUND`, `QUIZ_NOT_FOUND`, `FLASHCARD_NOT_FOUND`, `CHAT_SESSION_NOT_FOUND` | Unknown route, or not yours |
 | 409 | `EMAIL_TAKEN`, `LECTURE_NOT_READY`, `GENERATION_IN_PROGRESS`, `NOTES_NOT_GENERATED`, `INDEXING_IN_PROGRESS` | State conflicts |
 | 413 | `FILE_TOO_LARGE` | Upload over `MAX_UPLOAD_MB` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Not MP3/WAV/MP4/M4A or no audio track |

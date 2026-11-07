@@ -1,10 +1,11 @@
-"""/api/lectures: upload, list, status, delete, transcript (+ download), summary and notes.
+"""/api/lectures: upload, list, status, delete, transcript (+ download), media, summary and notes.
 HTTP only; the logic lives in services/lectures.py and workers/pipeline.py (CLAUDE.md rule 6)."""
 
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, Query, Response, UploadFile, status
+from fastapi.responses import FileResponse
 
 from app.api.deps import AppSettings, CurrentUser, DbSession, Generator, Indexer, LecturePipeline, MediaTools, Storage
 from app.models.lecture import LectureOutput, OutputKind
@@ -124,6 +125,20 @@ def download_transcript(
         media_type=MEDIA_TYPES[format],
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get(
+    "/{lecture_id}/media",
+    summary="The original recording (for the transcript's media player)",
+    response_class=FileResponse,
+    responses={
+        200: {"content": {v: {} for v in lecture_service.MEDIA_CONTENT_TYPES.values()}},
+        **error_responses(401, 404),
+    },
+)
+def get_media(lecture_id: uuid.UUID, user: CurrentUser, db: DbSession, storage: Storage) -> FileResponse:
+    path, media_type, filename = lecture_service.get_media(db, user, lecture_id, storage)
+    return FileResponse(path, media_type=media_type, filename=filename, content_disposition_type="inline")
 
 
 @router.post(

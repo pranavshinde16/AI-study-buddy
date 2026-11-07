@@ -135,7 +135,11 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. Requests to `/api/*` are proxied to the backend on port 8000.
+Open http://localhost:5173. Requests to `/api/*` are proxied to the backend at `API_PROXY_TARGET` (default `http://localhost:8000`). To use a backend on another port, copy `frontend/.env.example` to `frontend/.env` and change it, or set it for one run:
+
+| Windows (PowerShell) | macOS / Linux |
+|---|---|
+| `$env:API_PROXY_TARGET="http://localhost:8001"; npm run dev` | `API_PROXY_TARGET=http://localhost:8001 npm run dev` |
 
 Other scripts: `npm test` · `npm run typecheck` · `npm run lint` · `npm run build`
 

@@ -7,7 +7,7 @@ current user, so another user's lecture id gives 404, not 403 (we don't reveal i
 import re
 import uuid
 from collections.abc import Callable
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from typing import BinaryIO
 
 from fastapi import status
@@ -150,6 +150,32 @@ def get_transcript(db: Session, user: User, lecture_id: uuid.UUID) -> tuple[Lect
         )
     )
     return lecture, segments
+
+
+# Content-Type served for each stored extension (the upload's own content type may be generic).
+MEDIA_CONTENT_TYPES: dict[str, str] = {
+    "mp3": "audio/mpeg",
+    "wav": "audio/wav",
+    "mp4": "video/mp4",
+    "m4a": "audio/mp4",
+}
+
+
+def get_media(db: Session, user: User, lecture_id: uuid.UUID, storage: StorageService) -> tuple[Path, str, str]:
+    """Return (path, content type, download name) of the lecture's stored recording.
+    404 LECTURE_NOT_FOUND if it isn't yours; 404 MEDIA_NOT_FOUND if the file is gone."""
+    lecture = get_lecture(db, user, lecture_id)
+    missing = NotFoundError("The recording for this lecture is no longer stored", code="MEDIA_NOT_FOUND")
+    if not lecture.media_path:
+        raise missing
+    try:
+        path = storage.resolve(lecture.media_path)
+    except ValueError:
+        raise missing from None
+    ext = path.suffix.lower().lstrip(".")
+    if not path.is_file() or ext not in MEDIA_CONTENT_TYPES:
+        raise missing
+    return path, MEDIA_CONTENT_TYPES[ext], safe_download_name(lecture, ext)
 
 
 def safe_download_name(lecture: Lecture, ext: str) -> str:
