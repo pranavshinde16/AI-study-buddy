@@ -39,6 +39,7 @@ from app.services.llm.errors import (
 from app.services.llm.pricing import PricingTable
 from app.services.llm.prompts import PromptRegistry, PromptTemplate
 from app.services.llm.providers import ChatProvider, ChatResult, ProviderError, build_provider
+from app.services.llm.retry import backoff_delay
 
 log = structlog.get_logger(__name__)
 
@@ -205,8 +206,7 @@ class LLMClient:
             return None, exc.json(include_url=False)[:2000]
 
     def _backoff(self, retry_index: int, retry_after: float | None) -> float:
-        delay = retry_after if retry_after is not None else self.settings.llm_backoff_base_sec * (2**retry_index)
-        return min(delay, self.settings.llm_backoff_max_sec)
+        return backoff_delay(self.settings, retry_index, retry_after)
 
     def _send_with_retries(
         self,

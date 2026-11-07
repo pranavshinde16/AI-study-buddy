@@ -2,7 +2,7 @@
 
 Billing modes per provider:
   free_tier / local -> cost_usd = 0.0   (Groq free plan, Ollama on your laptop)
-  paid              -> tokens x price per 1M tokens
+  paid              -> tokens x price per 1M tokens (ASR: audio minutes x price per minute)
 A model missing from the file gives cost_usd = None (unknown), never a guess.
 """
 
@@ -24,6 +24,7 @@ class ModelPrice(BaseModel):
 class ProviderPricing(BaseModel):
     billing: Literal["free_tier", "paid", "local"]
     models: dict[str, ModelPrice] = {}
+    audio_models: dict[str, float] = {}  # ASR: USD per audio minute
 
 
 class PricingTable(BaseModel):
@@ -41,6 +42,18 @@ class PricingTable(BaseModel):
         if price is None or input_tokens is None or output_tokens is None:
             return None
         return round((input_tokens * price.input + output_tokens * price.output) / 1_000_000, 8)
+
+    def audio_cost(self, provider: str, model: str, audio_sec: float | None) -> float | None:
+        """Speech-to-text cost from the real audio length; None when unknown."""
+        p = self.providers.get(provider)
+        if p is None:
+            return None
+        if p.billing in ("free_tier", "local"):
+            return 0.0
+        per_min = p.audio_models.get(model)
+        if per_min is None or audio_sec is None:
+            return None
+        return round(audio_sec / 60.0 * per_min, 8)
 
 
 def load_pricing(path: Path = PRICING_FILE) -> PricingTable:

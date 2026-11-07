@@ -1,4 +1,4 @@
-"""Shared FastAPI dependencies: DB session, settings, current user."""
+"""Shared FastAPI dependencies: DB session, settings, current user, storage, ffmpeg, pipeline."""
 
 import uuid
 from typing import Annotated
@@ -14,6 +14,9 @@ from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.user import User
 from app.services.auth import get_active_user
+from app.services.media import Media, media_from_settings
+from app.services.storage import StorageService, storage_from_settings
+from app.workers.pipeline import Pipeline, get_pipeline
 
 # auto_error=False so we can return our own error envelope instead of FastAPI's default.
 _bearer = HTTPBearer(auto_error=False, description="Paste the access_token from POST /api/auth/login")
@@ -44,3 +47,21 @@ def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def get_storage_dep(settings: AppSettings) -> StorageService:
+    return storage_from_settings(settings)
+
+
+def get_media_dep(settings: AppSettings) -> Media:
+    return media_from_settings(settings)
+
+
+def get_pipeline_dep() -> Pipeline:
+    """Overridden in tests with a pipeline that uses the test DB and a fake ASR provider."""
+    return get_pipeline()
+
+
+Storage = Annotated[StorageService, Depends(get_storage_dep)]
+MediaTools = Annotated[Media, Depends(get_media_dep)]
+LecturePipeline = Annotated[Pipeline, Depends(get_pipeline_dep)]

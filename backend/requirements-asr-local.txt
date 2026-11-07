@@ -1,0 +1,5 @@
+# OPTIONAL: offline speech recognition with faster-whisper (ASR_PROVIDER=local).
+# Not needed for the default free Groq setup. Install on top of requirements.txt:
+#   pip install -r requirements-asr-local.txt
+# The first transcription downloads the model set in LOCAL_ASR_MODEL (e.g. "small" ~ 0.5 GB).
+faster-whisper==1.2.1       # CTranslate2 Whisper; runs on CPU (int8) or an NVIDIA GPU

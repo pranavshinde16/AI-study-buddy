@@ -27,11 +27,16 @@ from app.db.base import Base, CreatedAt, JSONType, UUIDPrimaryKey
 
 
 class LectureStatus(StrEnum):
-    """Pipeline stages, in order (IMPLEMENTATION_PLAN §6)."""
+    """Pipeline stages, in order (IMPLEMENTATION_PLAN §6).
+
+    TRANSCRIBED = transcript saved, ready for indexing. It is the end of the Phase 4 pipeline;
+    later phases continue from it to indexing → generating → ready.
+    """
 
     UPLOADED = "uploaded"
     EXTRACTING_AUDIO = "extracting_audio"
     TRANSCRIBING = "transcribing"
+    TRANSCRIBED = "transcribed"
     INDEXING = "indexing"
     GENERATING = "generating"
     READY = "ready"

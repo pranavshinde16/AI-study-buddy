@@ -251,7 +251,7 @@ Errors: `415 UNSUPPORTED_MEDIA_TYPE`, `413 FILE_TOO_LARGE`, `422 VALIDATION_ERRO
 ```json
 { "status": "transcribing", "progress": 45, "stage_detail": "chunk 3 of 6", "error": null }
 ```
-Stages: `uploaded → extracting_audio → transcribing → indexing → generating → ready | failed`.
+Stages: `uploaded → extracting_audio → transcribing → transcribed → indexing → generating → ready | failed`. *Phase 4 change:* `transcribed` (transcript saved, ready for indexing) is where the Phase 4 pipeline ends; later phases continue from it.
 
 **GET `/api/lectures/{id}/transcript`**
 ```json
@@ -582,8 +582,8 @@ Then draft the technical report as a Word document, using only real results.
 ## 14. Progress log
 - [x] Phase 1: Planning & design
 - [x] Phase 2: Scaffold & environment
-- [ ] Phase 3: Backend core + database
-- [ ] Phase 4: Upload & transcription
+- [x] Phase 3: Backend core + database
+- [x] Phase 4: Upload & transcription
 - [ ] Phase 5: Summary & notes
 - [ ] Phase 6: Quiz & flashcards
 - [ ] Phase 7: RAG & chat

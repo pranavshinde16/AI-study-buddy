@@ -3,14 +3,36 @@
 Run:  uvicorn app.main:app --reload   (from the backend/ folder)
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import structlog
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import auth, health
+from app.api.routers import auth, health, lectures
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import REQUEST_ID_HEADER, RequestIdMiddleware
+
+
+log = structlog.get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """On startup, mark lectures left half-processed by a restart as failed (they can't resume)."""
+    from app.db.session import get_session_factory
+    from app.workers.pipeline import mark_interrupted
+
+    try:
+        count = mark_interrupted(get_session_factory())
+        if count:
+            log.warning("interrupted_lectures_marked_failed", count=count)
+    except Exception as exc:  # noqa: BLE001 - the DB may be down; /api/health reports that
+        log.warning("startup_sweep_skipped", error_type=type(exc).__name__)
+    yield
 
 
 def create_app() -> FastAPI:
@@ -27,6 +49,7 @@ def create_app() -> FastAPI:
         ),
         docs_url="/docs",
         openapi_url="/openapi.json",
+        lifespan=lifespan,
     )
 
     register_error_handlers(app)
@@ -45,6 +68,7 @@ def create_app() -> FastAPI:
     api = APIRouter(prefix="/api")
     api.include_router(health.router)
     api.include_router(auth.router)
+    api.include_router(lectures.router)
     app.include_router(api)
 
     return app

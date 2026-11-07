@@ -6,6 +6,7 @@ pydantic==2.14.1            # request/response validation
 pydantic-settings==2.16.1   # typed settings loaded from .env / environment
 python-dotenv==1.2.2        # .env file parsing (used by pydantic-settings)
 email-validator==2.3.0      # validates e-mail addresses (pydantic EmailStr)
+python-multipart==0.0.32    # multipart/form-data parsing for file uploads (0.0.33 was < 2 weeks old)
 
 # Database
 sqlalchemy==2.1.6           # ORM / database toolkit

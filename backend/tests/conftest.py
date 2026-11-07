@@ -12,8 +12,15 @@ from sqlalchemy.pool import StaticPool
 import app.models  # noqa: F401  (register all tables)
 from app.core.config import Settings, get_settings
 from app.db.base import Base
+from app.api.deps import get_pipeline_dep
 from app.db.session import get_db
 from app.main import create_app
+from app.services.asr.client import ASRClient
+from app.services.llm.pricing import load_pricing
+from app.services.media import media_from_settings
+from app.services.storage import LocalStorage
+from app.workers.pipeline import Pipeline
+from tests.fakes import FakeASRProvider
 
 
 @pytest.fixture(autouse=True)
@@ -37,9 +44,12 @@ def _no_network(monkeypatch):
 
 
 @pytest.fixture
-def settings() -> Settings:
+def settings(tmp_path) -> Settings:
     return Settings(
         _env_file=None,
+        storage_dir=str(tmp_path / "storage"),
+        asr_provider="groq",
+        asr_chunk_sec=10,
         app_env="test",
         secret_key="test-secret-key-not-for-production-0123456789",
         groq_api_key="test-groq-key",
@@ -80,7 +90,28 @@ def db(session_factory) -> Iterator[Session]:
 
 
 @pytest.fixture
-def app(settings, session_factory) -> FastAPI:
+def fake_asr() -> FakeASRProvider:
+    """Replace `.script` / `.on_call` in a test to change what speech recognition returns."""
+    return FakeASRProvider("groq")
+
+
+@pytest.fixture
+def asr_client(settings, session_factory, fake_asr) -> ASRClient:
+    return ASRClient(settings, session_factory, load_pricing(), providers={"groq": fake_asr}, sleep=lambda _s: None)
+
+
+@pytest.fixture
+def storage(settings) -> LocalStorage:
+    return LocalStorage(settings.storage_path)
+
+
+@pytest.fixture
+def pipeline(settings, session_factory, storage, asr_client) -> Pipeline:
+    return Pipeline(settings, session_factory, storage, media_from_settings(settings), asr_client)
+
+
+@pytest.fixture
+def app(settings, session_factory, pipeline) -> FastAPI:
     application = create_app()
 
     def _get_db() -> Iterator[Session]:
@@ -89,6 +120,7 @@ def app(settings, session_factory) -> FastAPI:
 
     application.dependency_overrides[get_db] = _get_db
     application.dependency_overrides[get_settings] = lambda: settings
+    application.dependency_overrides[get_pipeline_dep] = lambda: pipeline
     return application
 
 

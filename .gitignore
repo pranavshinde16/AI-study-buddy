@@ -9,6 +9,9 @@ dev-log/
 # --- Runtime data (uploads, audio, vectors) ---
 storage/
 
+# --- Your own test recordings (large binaries, may be copyrighted) ---
+media-files/
+
 # --- Python ---
 __pycache__/
 *.py[cod]

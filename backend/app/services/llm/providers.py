@@ -67,6 +67,28 @@ def _retry_after(exc: openai.APIStatusError) -> float | None:
         return None
 
 
+def to_provider_error(exc: Exception) -> ProviderError:
+    """Translate an OpenAI-SDK exception (from any OpenAI-compatible provider) into a ProviderError."""
+    if isinstance(exc, openai.RateLimitError):
+        return ProviderError("rate_limited", str(exc), error_type="RateLimitError", retry_after=_retry_after(exc))
+    if isinstance(exc, openai.NotFoundError):
+        return ProviderError("model_not_found", str(exc), error_type="NotFoundError")
+    if isinstance(exc, (openai.AuthenticationError, openai.PermissionDeniedError)):
+        return ProviderError("auth", str(exc), error_type=type(exc).__name__)
+    if isinstance(exc, (openai.BadRequestError, openai.UnprocessableEntityError)):
+        # Groq reports decommissioned models as 400 "model_decommissioned".
+        kind: ErrorKind = "model_not_found" if "decommission" in str(exc).lower() else "bad_request"
+        return ProviderError(kind, str(exc), error_type=type(exc).__name__)
+    if isinstance(exc, openai.InternalServerError):
+        return ProviderError("unavailable", str(exc), error_type="InternalServerError")
+    if isinstance(exc, (openai.APIConnectionError, openai.APITimeoutError)):
+        return ProviderError("unavailable", str(exc), error_type=type(exc).__name__)
+    if isinstance(exc, openai.APIStatusError):
+        kind = "unavailable" if exc.status_code >= 500 else "error"
+        return ProviderError(kind, str(exc), error_type="APIStatusError")
+    return ProviderError("error", str(exc), error_type=type(exc).__name__)
+
+
 class OpenAICompatibleProvider:
     def __init__(self, name: str, *, base_url: str | None, api_key: str, timeout: float) -> None:
         self.name = name
@@ -90,23 +112,8 @@ class OpenAICompatibleProvider:
 
         try:
             resp = self._client.chat.completions.create(**kwargs)
-        except openai.RateLimitError as exc:
-            raise ProviderError("rate_limited", str(exc), error_type="RateLimitError", retry_after=_retry_after(exc)) from exc
-        except openai.NotFoundError as exc:
-            raise ProviderError("model_not_found", str(exc), error_type="NotFoundError") from exc
-        except (openai.AuthenticationError, openai.PermissionDeniedError) as exc:
-            raise ProviderError("auth", str(exc), error_type=type(exc).__name__) from exc
-        except (openai.BadRequestError, openai.UnprocessableEntityError) as exc:
-            # Groq reports decommissioned models as 400 "model_decommissioned".
-            kind: ErrorKind = "model_not_found" if "decommission" in str(exc).lower() else "bad_request"
-            raise ProviderError(kind, str(exc), error_type=type(exc).__name__) from exc
-        except openai.InternalServerError as exc:
-            raise ProviderError("unavailable", str(exc), error_type="InternalServerError") from exc
-        except (openai.APIConnectionError, openai.APITimeoutError) as exc:
-            raise ProviderError("unavailable", str(exc), error_type=type(exc).__name__) from exc
-        except openai.APIStatusError as exc:
-            kind = "unavailable" if exc.status_code >= 500 else "error"
-            raise ProviderError(kind, str(exc), error_type="APIStatusError") from exc
+        except openai.OpenAIError as exc:
+            raise to_provider_error(exc) from exc
 
         choice = resp.choices[0] if resp.choices else None
         text = (choice.message.content or "") if choice else ""

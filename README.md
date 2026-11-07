@@ -6,7 +6,7 @@ A web app that turns recorded lectures into transcripts, notes, quizzes, flashca
 - **Rules for contributors and Claude Code:** [CLAUDE.md](CLAUDE.md)
 - **Runs on free tiers by default:** Groq for speech recognition (`whisper-large-v3-turbo`) and the LLM (`openai/gpt-oss-120b`, an open-weight model hosted on Groq). OpenAI is optional and only used if you set it explicitly.
 
-> Status: Phase 3 (backend core). Database schema with migrations, register/login with JWT, one error format for every endpoint, JSON request logs, and a logged LLM client. The frontend is still an app shell with placeholder pages.
+> Status: Phase 4 (upload & transcription). Upload a lecture recording; a background pipeline extracts the audio with ffmpeg, transcribes it with Groq Whisper (free tier) and stores timestamped segments you can read or download as TXT/SRT/VTT. The frontend is still an app shell with placeholder pages.
 
 ## Stack
 FastAPI · Pydantic v2 · PostgreSQL 16 (Docker) · React 18 + Vite + TypeScript · Tailwind CSS v4 · shadcn/ui · React Router
@@ -21,7 +21,7 @@ FastAPI · Pydantic v2 · PostgreSQL 16 (Docker) · React 18 + Vite + TypeScript
 | Python | 3.11+ (3.12 used) | `winget install -e --id Python.Python.3.12` | `brew install python@3.12` | `sudo apt install python3.12 python3.12-venv` |
 | Node.js | 22.12+ or 24 LTS | `winget install -e --id OpenJS.NodeJS.LTS` | `brew install node@24` | [nodesource](https://github.com/nodesource/distributions) or `nvm install 24` |
 | Docker | Desktop / Engine | `wsl --install` (admin, then reboot), then `winget install -e --id Docker.DockerDesktop` | `brew install --cask docker` | [Docker Engine docs](https://docs.docker.com/engine/install/) |
-| ffmpeg | any recent (needed from Phase 4) | `winget install -e --id Gyan.FFmpeg` | `brew install ffmpeg` | `sudo apt install ffmpeg` |
+| ffmpeg | any recent (**required** from Phase 4) | `winget install -e --id Gyan.FFmpeg` | `brew install ffmpeg` | `sudo apt install ffmpeg` |
 
 Open a new terminal after installing so your `PATH` is updated.
 
@@ -76,6 +76,16 @@ If PowerShell refuses to run `Activate.ps1`, run `Set-ExecutionPolicy -Scope Cur
 Check: http://localhost:8000/api/health returns `{"status":"ok", ..., "checks":{"database":"ok"}}`, and http://localhost:8000/docs shows Swagger UI.
 
 **Try auth in Swagger:** `POST /api/auth/register`, then `POST /api/auth/login`. Copy `access_token`, click **Authorize**, paste it, then call `GET /api/auth/me`.
+
+**Try a transcription:** with the server running, upload a recording and fetch its transcript (uses your Groq free quota):
+
+| Windows (PowerShell) | macOS / Linux |
+|---|---|
+| `.\scripts\manual_phase4.ps1 -File C:\path\to\lecture.mp3` | `bash scripts/manual_phase4.sh /path/to/lecture.mp3` |
+
+The script registers a test account, uploads the file, polls `GET /api/lectures/{id}/status` until it reaches `transcribed`, prints the first segments and saves `.txt/.srt/.vtt` files to `storage/manual-test/`. You can do the same in Swagger with `POST /api/lectures/upload`.
+
+Offline speech recognition (optional): `pip install -r requirements-asr-local.txt` and set `ASR_PROVIDER=local` in `.env` (slower on CPU; the first run downloads the model).
 
 **Check your Groq key (optional):** `python -m scripts.llm_smoke` sends one small request through the LLM client to Groq's free tier, prints the result, and logs a row in the `llm_calls` table.
 

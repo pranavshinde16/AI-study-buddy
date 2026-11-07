@@ -48,6 +48,16 @@ ASR_MODEL=whisper-large-v3-turbo
 GROQ_API_KEY=
 GROQ_BASE_URL=https://api.groq.com/openai/v1
 OPENAI_API_KEY=              # optional, paid; only used if a provider is explicitly set to openai
+OPENAI_ASR_MODEL=whisper-1
+ASR_LANGUAGE=                # blank = auto-detect
+ASR_CHUNK_SEC=600
+ASR_MAX_CHUNK_MB=24
+LOCAL_ASR_MODEL=small        # faster-whisper (optional: requirements-asr-local.txt)
+LOCAL_ASR_DEVICE=cpu
+LOCAL_ASR_COMPUTE_TYPE=int8
+FFMPEG_BIN=ffmpeg
+FFPROBE_BIN=ffprobe
+MEDIA_TIMEOUT_SEC=1800
 
 LLM_PROVIDER=groq            # groq (free tier, default) | openai (paid, opt-in)
 LLM_MODEL=openai/gpt-oss-120b   # open-weight model hosted on Groq (free tier); not the OpenAI API

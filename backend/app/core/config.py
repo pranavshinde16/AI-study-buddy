@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
     openai_api_key: str = ""  # optional, paid; never used unless a provider is explicitly "openai"
+    openai_asr_model: str = "whisper-1"  # only whisper-1 returns segment timestamps on OpenAI
+    asr_language: str = ""  # ISO-639-1 code such as "en"; blank = let Whisper detect it
+    asr_chunk_sec: int = 600  # audio is cut into pieces of this length before transcription
+    asr_max_chunk_mb: float = 24.0  # Groq free tier accepts files up to 25 MB
+    local_asr_model: str = "small"  # faster-whisper model name (ASR_PROVIDER=local only)
+    local_asr_device: str = "cpu"  # cpu | cuda
+    local_asr_compute_type: str = "int8"  # int8 is fastest on CPU
+    ffmpeg_bin: str = "ffmpeg"  # path or name of the ffmpeg executable
+    ffprobe_bin: str = "ffprobe"
+    media_timeout_sec: int = 1800  # max time for one ffmpeg/ffprobe run
 
     # --- LLM (free Groq tier by default; OpenAI is opt-in only, never a fallback) ---
     llm_provider: Literal["groq", "openai"] = "groq"
@@ -70,6 +80,12 @@ class Settings(BaseSettings):
         if self.app_env == "production" and (self.secret_key == "change-me" or len(self.secret_key) < 32):
             raise ValueError("SECRET_KEY must be a random value of at least 32 characters when APP_ENV=production")
         return self
+
+    @property
+    def storage_path(self) -> Path:
+        """STORAGE_DIR as an absolute path; a relative value is resolved against backend/."""
+        p = Path(self.storage_dir)
+        return p if p.is_absolute() else (BACKEND_DIR / p).resolve()
 
     @property
     def cors_origin_list(self) -> list[str]:
