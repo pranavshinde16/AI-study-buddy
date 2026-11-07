@@ -581,7 +581,7 @@ Then draft the technical report as a Word document, using only real results.
 
 ## 14. Progress log
 - [x] Phase 1: Planning & design
-- [ ] Phase 2: Scaffold & environment
+- [x] Phase 2: Scaffold & environment
 - [ ] Phase 3: Backend core + database
 - [ ] Phase 4: Upload & transcription
 - [ ] Phase 5: Summary & notes
