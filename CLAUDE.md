@@ -4,7 +4,7 @@ University project: a web app that turns recorded lectures into transcripts, not
 **The full design and phase plan are in `IMPLEMENTATION_PLAN.md`. Read the relevant section before every phase. Only work on the phase you are asked for.**
 
 ## Stack
-- Backend: Python 3.11+, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, PostgreSQL 16, ChromaDB, sentence-transformers (`BAAI/bge-small-en-v1.5`), ffmpeg, OpenAI Python SDK (also used for Groq and Ollama through `base_url`)
+- Backend: Python 3.11+, FastAPI, Pydantic v2, SQLAlchemy 2, Alembic, PostgreSQL 16 (psycopg 3), PyJWT + bcrypt, structlog, ChromaDB, sentence-transformers (`BAAI/bge-small-en-v1.5`), ffmpeg, OpenAI Python SDK (also used for Groq and Ollama through `base_url`)
 - Frontend: React 18 + Vite + TypeScript, Tailwind, shadcn/ui, TanStack Query, React Router, Recharts, React Flow
 - Fine-tuning: Unsloth + TRL + PEFT on Colab; served through Ollama (GGUF)
 - Docker Compose for the full stack
@@ -40,15 +40,23 @@ DATABASE_URL=postgresql+psycopg://studybuddy:studybuddy@localhost:5432/studybudd
 STORAGE_DIR=../storage
 MAX_UPLOAD_MB=500
 CORS_ORIGINS=http://localhost:5173
+LOG_LEVEL=INFO
+LOG_JSON=true
 
 ASR_PROVIDER=groq            # groq | local | openai
 ASR_MODEL=whisper-large-v3-turbo
 GROQ_API_KEY=
+GROQ_BASE_URL=https://api.groq.com/openai/v1
 OPENAI_API_KEY=              # optional, paid; only used if a provider is explicitly set to openai
 
 LLM_PROVIDER=groq            # groq (free tier, default) | openai (paid, opt-in)
 LLM_MODEL=openai/gpt-oss-120b   # open-weight model hosted on Groq (free tier); not the OpenAI API
 JUDGE_MODEL=openai/gpt-oss-120b
+LLM_MAX_RETRIES=3            # same provider only, never a paid fallback
+LLM_BACKOFF_BASE_SEC=2.0
+LLM_BACKOFF_MAX_SEC=30.0
+LLM_TIMEOUT_SEC=120
+LLM_MAX_OUTPUT_TOKENS=4096
 
 EMBEDDING_MODEL=BAAI/bge-small-en-v1.5
 CHROMA_DIR=../storage/chroma

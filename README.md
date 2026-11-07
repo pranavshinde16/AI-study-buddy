@@ -6,7 +6,7 @@ A web app that turns recorded lectures into transcripts, notes, quizzes, flashca
 - **Rules for contributors and Claude Code:** [CLAUDE.md](CLAUDE.md)
 - **Runs on free tiers by default:** Groq for speech recognition (`whisper-large-v3-turbo`) and the LLM (`openai/gpt-oss-120b`, an open-weight model hosted on Groq). OpenAI is optional and only used if you set it explicitly.
 
-> Status: Phase 2 (scaffold). The backend exposes `/api/health`; the frontend is an app shell with placeholder pages.
+> Status: Phase 3 (backend core). Database schema with migrations, register/login with JWT, one error format for every endpoint, JSON request logs, and a logged LLM client. The frontend is still an app shell with placeholder pages.
 
 ## Stack
 FastAPI · Pydantic v2 · PostgreSQL 16 (Docker) · React 18 + Vite + TypeScript · Tailwind CSS v4 · shadcn/ui · React Router
@@ -53,6 +53,7 @@ cd backend
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+alembic upgrade head
 pytest -q
 uvicorn app.main:app --reload
 ```
@@ -63,13 +64,20 @@ cd backend
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+alembic upgrade head
 pytest -q
 uvicorn app.main:app --reload
 ```
 
+`alembic upgrade head` creates or updates the database tables. Run it again after every `git pull` that adds a migration.
+
 If PowerShell refuses to run `Activate.ps1`, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 
-Check: http://localhost:8000/api/health returns `{"status":"ok",...}`, and http://localhost:8000/docs shows Swagger UI.
+Check: http://localhost:8000/api/health returns `{"status":"ok", ..., "checks":{"database":"ok"}}`, and http://localhost:8000/docs shows Swagger UI.
+
+**Try auth in Swagger:** `POST /api/auth/register`, then `POST /api/auth/login`. Copy `access_token`, click **Authorize**, paste it, then call `GET /api/auth/me`.
+
+**Check your Groq key (optional):** `python -m scripts.llm_smoke` sends one small request through the LLM client to Groq's free tier, prints the result, and logs a row in the `llm_calls` table.
 
 ### 5. Frontend (in a second terminal; same commands on every OS)
 

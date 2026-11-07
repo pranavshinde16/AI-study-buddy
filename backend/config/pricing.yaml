@@ -1,0 +1,29 @@
+# Prices used to calculate llm_calls.cost_usd from REAL token counts (IMPLEMENTATION_PLAN §7.1).
+# Edit this file when prices or your plan change; re-check the providers' pricing pages before relying on it.
+#
+# billing:
+#   free_tier -> cost recorded as 0.0 (you are on the provider's free plan)
+#   local     -> cost recorded as 0.0 (runs on your own machine, e.g. Ollama)
+#   paid      -> cost = input_tokens * input + output_tokens * output, prices in USD per 1M tokens
+# A model that is not listed under a paid provider gets cost_usd = null (unknown), never a guess.
+
+checked: "2026-11-06"
+currency: USD
+
+providers:
+  groq:
+    billing: free_tier
+    # Reference only (Groq Developer-plan list prices, console.groq.com/docs/models, checked 2026-11-06).
+    # They are used only if you change billing to "paid" after upgrading your Groq plan.
+    models:
+      openai/gpt-oss-120b: { input: 0.15, output: 0.60 }
+      openai/gpt-oss-20b: { input: 0.075, output: 0.30 }
+
+  openai:
+    billing: paid
+    # Optional, opt-in provider. Price from IMPLEMENTATION_PLAN §3 (checked Nov 2026) — verify at openai.com/api/pricing.
+    models:
+      gpt-5-mini: { input: 0.25, output: 2.00 }
+
+  ollama:
+    billing: local

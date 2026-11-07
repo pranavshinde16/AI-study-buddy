@@ -1,0 +1,11 @@
+id: smoke_test
+version: v1
+description: >
+  Tiny connectivity check for the LLM client (used by scripts/llm_smoke.py).
+  It does not touch lecture content.
+max_output_tokens: 512
+system: |
+  You are a connectivity check. Follow the instructions exactly.
+user: |
+  Return a JSON object with "echo" set to exactly this word: ${word}
+  and "ok" set to true.

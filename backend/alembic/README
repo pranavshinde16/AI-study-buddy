@@ -1,0 +1,8 @@
+Database migrations (Alembic). Run from the backend/ folder with the venv active.
+
+  alembic upgrade head                                  # apply all migrations
+  alembic revision --autogenerate -m "describe change"  # after editing app/models/*
+  alembic downgrade -1                                  # undo the last migration
+  alembic current                                       # show the DB's revision
+
+Always read a generated migration before applying it: autogenerate can miss renames.

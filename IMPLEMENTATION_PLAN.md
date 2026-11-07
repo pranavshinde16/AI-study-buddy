@@ -1,7 +1,7 @@
 # AI Study Buddy — Implementation Plan
 
 > Put this file in the repo root next to `CLAUDE.md`. Claude Code reads `CLAUDE.md` on its own. Tell it to read this file at the start of every phase.
-> Status: **Phase 1 (design) is finished. No code has been written yet.**
+> Status: see §14 (Progress log) for which phases are done.
 > Prices and free-tier limits were checked in Nov 2026. Check them again before you rely on them.
 
 ---
@@ -82,7 +82,7 @@
 | Layer | Proposed | Change from your list, and why |
 |---|---|---|
 | Frontend | **React 18 + Vite + TypeScript**, Tailwind CSS, **shadcn/ui**, TanStack Query, React Router, **Recharts**, **React Flow** (mind map), Framer Motion, sonner (toasts) | Vite replaces Create React App, which is deprecated. TypeScript catches API contract bugs. shadcn/ui gives you a polished SaaS look quickly. |
-| Backend | **FastAPI**, Pydantic v2, **SQLAlchemy 2 + Alembic**, python-jose (JWT), passlib/bcrypt, structlog | Alembic gives you proper database migrations, which looks professional. |
+| Backend | **FastAPI**, Pydantic v2, **SQLAlchemy 2 + Alembic**, psycopg 3, **PyJWT** (JWT), **bcrypt**, structlog | Alembic gives you proper database migrations, which looks professional. *Phase 3 change:* PyJWT replaces python-jose and plain `bcrypt` replaces passlib. Both originals are unmaintained, and passlib breaks with bcrypt ≥ 4.1. |
 | Background jobs | **FastAPI BackgroundTasks** with job state stored in the database (MVP) | Transcription takes minutes, so the upload returns `202` straight away and the frontend polls for status. Redis and a task queue (arq) are optional extras later. |
 | Database | **PostgreSQL 16** (Docker). SQLite only for unit tests | – |
 | Vectors | ChromaDB (persistent folder) | – |

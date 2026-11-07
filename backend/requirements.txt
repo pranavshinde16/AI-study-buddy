@@ -5,6 +5,21 @@ uvicorn[standard]==0.54.0   # ASGI server that runs the app
 pydantic==2.14.1            # request/response validation
 pydantic-settings==2.16.1   # typed settings loaded from .env / environment
 python-dotenv==1.2.2        # .env file parsing (used by pydantic-settings)
+email-validator==2.3.0      # validates e-mail addresses (pydantic EmailStr)
+
+# Database
+sqlalchemy==2.1.6           # ORM / database toolkit
+alembic==1.20.1             # schema migrations
+psycopg[binary]==3.3.6      # PostgreSQL driver (psycopg 3, prebuilt binary)
+
+# Auth
+bcrypt==5.0.0               # password hashing (used directly; passlib is unmaintained)
+pyjwt==2.15.1               # JSON Web Tokens (replaces python-jose from the plan)
+
+# Logging, config files, LLM SDK
+structlog==26.1.0           # structured JSON logs
+pyyaml==6.0.3               # prompt registry + pricing.yaml
+openai==3.37.0              # OpenAI-compatible client, used for Groq / OpenAI / Ollama via base_url
 
 # Dev / test
 pytest==9.1.1               # test runner

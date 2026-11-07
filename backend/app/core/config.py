@@ -7,10 +7,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# backend/app/core/config.py -> parents[3] is the repository root
-REPO_ROOT = Path(__file__).resolve().parents[3]
+# backend/app/core/config.py -> parents[2] is backend/, parents[3] is the repository root
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_DIR.parent
+
+ProviderName = Literal["groq", "openai", "ollama"]
 
 
 class Settings(BaseSettings):
@@ -30,17 +34,25 @@ class Settings(BaseSettings):
     storage_dir: str = "../storage"
     max_upload_mb: int = 500
     cors_origins: str = "http://localhost:5173"
+    log_level: str = "INFO"
+    log_json: bool = True
 
     # --- Speech recognition (free Groq tier by default) ---
     asr_provider: Literal["groq", "local", "openai"] = "groq"
     asr_model: str = "whisper-large-v3-turbo"
     groq_api_key: str = ""
+    groq_base_url: str = "https://api.groq.com/openai/v1"
     openai_api_key: str = ""  # optional, paid; never used unless a provider is explicitly "openai"
 
     # --- LLM (free Groq tier by default; OpenAI is opt-in only, never a fallback) ---
     llm_provider: Literal["groq", "openai"] = "groq"
     llm_model: str = "openai/gpt-oss-120b"
     judge_model: str = "openai/gpt-oss-120b"
+    llm_max_retries: int = 3  # retries on 429 / transient errors, same provider only
+    llm_backoff_base_sec: float = 2.0  # exponential backoff: base * 2**attempt (or Retry-After)
+    llm_backoff_max_sec: float = 30.0
+    llm_timeout_sec: float = 120.0
+    llm_max_output_tokens: int = 4096
 
     # --- Retrieval ---
     embedding_model: str = "BAAI/bge-small-en-v1.5"
@@ -52,6 +64,12 @@ class Settings(BaseSettings):
     finetuned_base_url: str = "http://localhost:11434/v1"
     finetuned_model_tag: str = "study-buddy-qwen"
     base_slm_model_tag: str = "qwen3:1.7b"
+
+    @model_validator(mode="after")
+    def _no_default_secret_in_production(self) -> "Settings":
+        if self.app_env == "production" and (self.secret_key == "change-me" or len(self.secret_key) < 32):
+            raise ValueError("SECRET_KEY must be a random value of at least 32 characters when APP_ENV=production")
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:
