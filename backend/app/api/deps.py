@@ -18,6 +18,9 @@ from app.services.generation.flashcards import FlashcardGenerator, get_flashcard
 from app.services.generation.quiz import QuizGenerator, get_quiz_generator
 from app.services.generation.summary import LectureGenerator, get_lecture_generator
 from app.services.grading import ShortAnswerGrader, get_short_answer_grader
+from app.services.indexing import LectureIndexer, get_indexer
+from app.services.llm.generators import GeneratorRegistry, get_generator_registry
+from app.services.rag import RagService, get_rag_service
 from app.services.media import Media, media_from_settings
 from app.services.storage import StorageService, storage_from_settings
 from app.workers.pipeline import Pipeline, get_pipeline
@@ -79,6 +82,19 @@ def get_flashcard_generator_dep() -> FlashcardGenerator:
     return get_flashcard_generator()
 
 
+def get_rag_dep() -> RagService:
+    """The embedding model and Chroma open lazily on the first question, not at startup."""
+    return get_rag_service()
+
+
+def get_indexer_dep() -> LectureIndexer:
+    return get_indexer()
+
+
+def get_generators_dep() -> GeneratorRegistry:
+    return get_generator_registry()
+
+
 def get_pipeline_dep() -> Pipeline:
     """Overridden in tests with a pipeline that uses the test DB and a fake ASR provider."""
     return get_pipeline()
@@ -91,3 +107,6 @@ Generator = Annotated[LectureGenerator, Depends(get_generator_dep)]
 QuizGen = Annotated[QuizGenerator, Depends(get_quiz_generator_dep)]
 Grader = Annotated[ShortAnswerGrader, Depends(get_grader_dep)]
 FlashcardGen = Annotated[FlashcardGenerator, Depends(get_flashcard_generator_dep)]
+Rag = Annotated[RagService, Depends(get_rag_dep)]
+Indexer = Annotated[LectureIndexer, Depends(get_indexer_dep)]
+Generators = Annotated[GeneratorRegistry, Depends(get_generators_dep)]

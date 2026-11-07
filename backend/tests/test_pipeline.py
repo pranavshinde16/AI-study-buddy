@@ -78,8 +78,16 @@ def test_pipeline_end_to_end_with_fake_asr(pipeline, fake_asr, storage, db, tmp_
     ]
 
     runs = {r.stage: r for r in db.scalars(select(PipelineRun).where(PipelineRun.lecture_id == lec.id))}
-    assert set(runs) == {"extracting_audio", "transcribing"}
+    assert set(runs) == {"extracting_audio", "transcribing", "indexing"}
     assert all(r.status == "ok" and r.duration_ms is not None and r.audio_sec == 25 for r in runs.values())
+
+    # Phase 7: the transcript was indexed (one short chunk here) and the vector store has it
+    from app.models.lecture import Chunk
+
+    chunks = list(db.scalars(select(Chunk).where(Chunk.lecture_id == lec.id)))
+    assert len(chunks) == 1 and chunks[0].start_sec == 0.0 and chunks[0].end_sec == 21.9
+    assert pipeline.indexer.store.count(lec.id) == 1
+    assert "1 chunks indexed" in lec.stage_detail
 
     calls = list(db.scalars(select(LLMCall).where(LLMCall.task == "asr")))
     assert len(calls) == 3 and all(c.lecture_id == lec.id and c.status == "ok" for c in calls)

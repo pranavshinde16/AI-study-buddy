@@ -51,6 +51,7 @@ REASONING_PROVIDERS = frozenset({"groq", "openai"})
 OUTPUT_RESERVE_TOKENS = 1000
 
 _FENCE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.DOTALL)
+_THINK = re.compile(r"<think>.*?</think>", re.DOTALL)  # qwen3 (Ollama) can emit its reasoning first
 
 
 @dataclass
@@ -71,7 +72,7 @@ class LLMResult:
 
 def _extract_json(text: str) -> Any:
     """Parse JSON, tolerating ```json fences or prose around a single object."""
-    candidate = text.strip()
+    candidate = _THINK.sub("", text).strip()
     m = _FENCE.match(candidate)
     if m:
         candidate = m.group(1)
@@ -130,7 +131,10 @@ class LLMClient:
         lecture_id: uuid.UUID | None = None,
         max_output_tokens: int | None = None,
         temperature: float | None = None,
+        max_retries: int | None = None,
     ) -> LLMResult:
+        """`max_retries` overrides LLM_MAX_RETRIES for this call (e.g. 0 for a local Ollama
+        model, where waiting and retrying a refused connection only delays the error)."""
         prompt = self.prompts.get(prompt_id)
         system, user = prompt.render(variables or {})
         if schema is not None:
@@ -149,6 +153,7 @@ class LLMClient:
             max_output_tokens=max_output_tokens or prompt.max_output_tokens or self.settings.llm_max_output_tokens,
             temperature=temperature if temperature is not None else prompt.temperature,
             reasoning_effort=(self.settings.llm_reasoning_effort or None) if provider_name in REASONING_PROVIDERS else None,
+            max_retries=max_retries,
         )
         try:
             chat_provider = self._get_provider(provider_name)
@@ -233,7 +238,7 @@ class LLMClient:
         json_check: type[BaseModel] | None,
         repair: bool = False,
     ) -> ChatResult:
-        retries = self.settings.llm_max_retries
+        retries = self.settings.llm_max_retries if ctx.max_retries is None else ctx.max_retries
         for retry_index in range(retries + 1):
             ctx.attempt += 1
             reservation = self._pace(ctx, messages)
@@ -313,9 +318,17 @@ class LLMClient:
         if limiter is not None:
             limiter.settle(reservation, actual)
 
-    @staticmethod
-    def _to_app_error(exc: ProviderError, ctx: "_CallContext") -> LLMError:
+    def _to_app_error(self, exc: ProviderError, ctx: "_CallContext") -> LLMError:
         details = {"provider": ctx.provider, "model": ctx.model, "task": ctx.task}
+        if ctx.provider == "ollama" and exc.kind in ("unavailable", "model_not_found"):
+            url = self.settings.finetuned_base_url
+            if exc.kind == "unavailable":
+                message = (f"Ollama is not running or not reachable at {url} (FINETUNED_BASE_URL). Start it with "
+                           "`ollama serve`; the fine-tuned and base SLMs are set up in Phase 10.")
+            else:
+                message = (f"Model '{ctx.model}' is not installed in Ollama at {url}. Pull or create it first "
+                           f"(`ollama pull {ctx.model}`, or `ollama create` for the fine-tuned model in Phase 10).")
+            return ModelUnavailableError(message, details={**details, "base_url": url})
         if exc.kind == "rate_limited":
             return RateLimitedError(
                 f"{ctx.provider} rate limit reached for {ctx.model}. Wait a minute and try again "
@@ -399,6 +412,7 @@ class _CallContext:
     max_output_tokens: int
     temperature: float | None
     reasoning_effort: str | None = None
+    max_retries: int | None = None
     attempt: int = 0
 
 

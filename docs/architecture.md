@@ -1,6 +1,6 @@
 # Architecture
 
-This page describes the backend as built through **Phase 6** (upload, transcription, summary and notes, quizzes with grading and mastery, flashcards). Parts that later phases add are marked *(planned)*. The full design and phase plan live in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
+This page describes the backend as built through **Phase 7** (upload, transcription, search indexing, summary and notes, quizzes with grading and mastery, flashcards, grounded Q&A and chat). Parts that later phases add are marked *(planned)*. The full design and phase plan live in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
 
 ## 1. System overview
 
@@ -22,13 +22,19 @@ flowchart LR
     S --> GR["Grader<br/>services/grading.py"]
     GR --> LLM
     GR -. fallback .-> EMB["Embedding client (local bge-small)<br/>services/embeddings.py"]
+    P --> IDX["Indexer<br/>services/indexing.py + chunking.py"]
+    IDX --> EMB
+    S --> RAG["RAG service<br/>services/rag.py"]
+    RAG --> EMB
+    RAG --> REG["Generator registry<br/>services/llm/generators.py"]
+    REG --> LLM
   end
   DB[("PostgreSQL 16")]
   FS[("storage/<br/>uploads + temporary audio")]
   GROQ["Groq API (free tier)<br/>whisper-large-v3-turbo · gpt-oss-120b"]
   OAI["OpenAI API<br/>(optional, paid, opt-in only)"]
   OLL["Ollama + fine-tuned SLM<br/>(Phase 10, planned)"]
-  CH[("ChromaDB<br/>(Phase 7, planned)")]
+  CH[("ChromaDB<br/>storage/chroma, cosine")]
 
   FE -- "REST + JWT" --> R
   S --> DB
@@ -39,7 +45,8 @@ flowchart LR
   ASR -.-> OAI
   LLM -.-> OAI
   LLM -.-> OLL
-  S -.-> CH
+  IDX --> CH
+  RAG --> CH
 ```
 
 Dashed arrows are used only when you configure them explicitly. The app **never switches provider on its own**: when Groq rate-limits or a model is unavailable, the request fails with a clear error (`429 RATE_LIMITED`, `503 MODEL_UNAVAILABLE`) instead of falling back to a paid API.
@@ -51,7 +58,7 @@ Dashed arrows are used only when you configure them explicitly. The app **never 
 | Routers | `app/api/routers/` | HTTP only: parse and validate input, call a service, shape the response. No business logic. |
 | Dependencies | `app/api/deps.py` | DB session, settings, current user (JWT), storage, ffmpeg wrapper, pipeline, generator. Tests override these. |
 | Schemas | `app/schemas/` | Pydantic request/response models (shown in Swagger). |
-| Services | `app/services/` | Business logic: `auth`, `lectures`, `summaries`, `quizzes`, `grading`, `flashcards`, `embeddings`, `storage`, `media`, `transcript_format`, `asr/`, `llm/`, `generation/` (summary, quiz, flashcards, shared transcript batches in `context.py`). |
+| Services | `app/services/` | Business logic: `auth`, `lectures`, `summaries`, `quizzes`, `grading`, `flashcards`, `embeddings`, `chunking`, `indexing`, `vectorstore`, `rag`, `chat`, `storage`, `media`, `transcript_format`, `asr/`, `llm/`, `generation/` (summary, quiz, flashcards, shared transcript batches in `context.py`). |
 | Worker | `app/workers/pipeline.py` | The lecture pipeline, run by FastAPI `BackgroundTasks`. |
 | Models | `app/models/` | SQLAlchemy 2 tables; migrations in `alembic/versions/`. |
 | Core | `app/core/` | Settings (`config.py`), error envelope, structlog logging, request-id middleware, password hashing and JWT. |
@@ -84,7 +91,9 @@ sequenceDiagram
     ASR-->>BG: segments (times relative to the chunk)
   end
   BG->>BG: shift by chunk offset, merge, clamp, drop empty
-  BG->>DB: transcript_segments, status=transcribed
+  BG->>DB: transcript_segments, status=indexing
+  BG->>BG: chunks (~350 words / ≤ 90 s, 15 % overlap), local bge-small embeddings
+  BG->>DB: chunks rows + Chroma vectors, status=transcribed
   BG->>DB: status=generating
   loop topics per window, notes per topic, one summary
     BG->>L: prompt (segment ids, never times)
@@ -106,8 +115,9 @@ stateDiagram-v2
   uploaded --> extracting_audio
   extracting_audio --> transcribing
   extracting_audio --> failed: unreadable media / ffmpeg error
-  transcribing --> transcribed
+  transcribing --> indexing
   transcribing --> failed: ASR error after retries
+  indexing --> transcribed: chunks embedded (or index failed: rebuilt on the first question)
   transcribed --> generating: SUMMARY_AUTO=true, or POST /summarize
   generating --> ready
   generating --> transcribed: generation failed (error set, transcript kept)
@@ -119,7 +129,7 @@ stateDiagram-v2
 
 - `transcribed` with a non-null `error` means the transcript is available but the summary failed. Retry with `POST /api/lectures/{id}/summarize`.
 - On startup, lectures left in `uploaded`, `extracting_audio` or `transcribing` by a restart are marked `failed` (background tasks cannot resume). Lectures left in `generating` go back to `transcribed`.
-- `indexing` (vector store) is added between `transcribed` and `generating` in Phase 7 *(planned)*.
+- `indexing` comes between transcription and `transcribed`. A lecture left in `indexing` by a restart goes back to `transcribed`, and the first question re-indexes it. See [rag.md](rag.md).
 
 ## 4. Grounding rules (how the app avoids invented content)
 
@@ -137,9 +147,11 @@ All model calls go through three wrappers. No other code calls an SDK or model d
 
 | Wrapper | Used for | Providers |
 |---|---|---|
-| `services/llm/client.py` → `LLMClient.complete()` | topics, notes, summary, quiz, short-answer grading, flashcards (later: RAG) | `groq` (default), `openai` (opt-in), `ollama` (Phase 10) |
+| `services/llm/client.py` → `LLMClient.complete()` | topics, notes, summary, quiz, short-answer grading, flashcards, RAG answer and follow-up rewrite | `groq` (default), `openai` (opt-in), `ollama` (Phase 10) |
 | `services/asr/client.py` → `ASRClient.transcribe_chunk()` | speech-to-text | `groq` (default), `openai` (opt-in), `local` (faster-whisper, optional) |
-| `services/embeddings.py` → `EmbeddingClient.embed()` | short-answer grading fallback (later: RAG) | `local` (sentence-transformers, loaded on first use) |
+| `services/embeddings.py` → `EmbeddingClient.embed()` / `embed_queries()` | chunk indexing, search queries (with bge's prefix), short-answer grading fallback | `local` (sentence-transformers, loaded on first use) |
+
+Answer generators for `/ask` and `/chat` (`cloud`, `finetuned`, `base`, plus any added via `ANSWER_GENERATORS`) are entries in `services/llm/generators.py`. Each one is the same `LLMClient` with a fixed provider and model, so its calls are logged like every other call.
 
 What the LLM client does for each request:
 
@@ -164,10 +176,13 @@ Cost comes from `backend/config/pricing.yaml`: `free_tier` and `local` providers
 | `quiz_attempts`, `attempt_answers` | quizzes service | score/percent per submission; per question: response, correct, score, `graded_by`, feedback |
 | `topic_mastery` | quizzes service | per user + lecture + topic: moving-average mastery and question count |
 | `flashcards` | flashcards service | front, back, kind (definition/concept), topic, `source_start`, Leitner box, `due_at` |
+| `chunks` | indexer | retrieval chunks: `idx`, `start_sec`, `end_sec`, `text`, `vector_id` (vectors in Chroma) |
+| `chat_sessions`, `chat_messages` | chat service | conversation turns; answers keep their sources, `answerable` and generator |
+| `qa_logs` | chat service | one row per question: generator, scores, threshold, refusal reason, retrieval and end-to-end latency |
 | `llm_calls` | LLM, ASR and embedding clients | one row per model request (kept when a lecture is deleted: `lecture_id` set to NULL) |
 | `pipeline_runs` | pipeline | one row per stage with duration and audio seconds |
 
-Other tables (chunks, chat, eval) exist from the Phase 3 migration and are filled by later phases.
+The eval tables exist from the Phase 3 migration and are filled in Phase 11.
 
 Files on disk (`STORAGE_DIR`, gitignored):
 
@@ -193,9 +208,12 @@ All settings are read by `app/core/config.py` from environment variables or the 
 | `QUIZ_CONTEXT_MAX_TOKENS`, `QUIZ_MAX_REGEN_ROUNDS` | 2500, 2 | Transcript per quiz/flashcard request; retries for invalid questions |
 | `SHORT_ANSWER_SIM_THRESHOLD` | 0.85 | Embedding-fallback bar for a correct short answer |
 | `MASTERY_EMA_ALPHA`, `MASTERY_WEAK_THRESHOLD` | 0.3, 0.6 | Mastery moving average; weak-topic cut-off |
+| `CHUNK_TARGET_WORDS`, `CHUNK_MAX_SEC`, `CHUNK_OVERLAP` | 350, 90, 0.15 | Retrieval chunk size and overlap |
+| `RAG_TOP_K`, `RAG_MIN_SCORE` | 5, 0.50 | Chunks per question; refusal threshold (first filter; judgement call from the calibration, see [rag.md](rag.md#3-calibrating-rag_min_score)) |
+| `ANSWER_GENERATORS` | `{}` | Extra answer generators, added by configuration only |
 
 ## 8. Testing approach
 
-- `pytest` runs on in-memory SQLite with fake providers (`tests/fakes.py`): `FakeASRProvider` for speech, `FakeLectureLLM` for the topics/notes/summary/quiz/grading/flashcard prompts (it can inject invalid quiz items to test regeneration), and `FakeEmbedder` (bag-of-words vectors, so the embedding model is never downloaded in tests). An autouse fixture fails any test that opens a non-loopback network connection.
+- `pytest` runs on in-memory SQLite with fake providers (`tests/fakes.py`): `FakeASRProvider` for speech, `FakeLectureLLM` for the topics/notes/summary/quiz/grading/flashcard prompts (it can inject invalid quiz items to test regeneration), and `FakeEmbedder` (bag-of-words vectors, so the embedding model is never downloaded in tests). The vector store is a real in-memory Chroma with a new collection per test (telemetry off). An autouse fixture fails any test that opens a non-loopback network connection.
 - Media tests generate short tones and tiny videos with ffmpeg (`tests/fixtures/audio.py`) and are skipped if ffmpeg is not installed.
-- Real-provider checks are manual: `scripts/llm_smoke.py`, `scripts/embedding_smoke.py`, `scripts/manual_phase4.*`, `scripts/manual_phase5.*`, `scripts/manual_phase6.*`.
+- Real-provider checks are manual: `scripts/llm_smoke.py`, `scripts/embedding_smoke.py`, `scripts/manual_phase4.*`, `scripts/manual_phase5.*`, `scripts/manual_phase6.*`, `scripts/manual_phase7.*`, `scripts/calibrate_rag.py`.

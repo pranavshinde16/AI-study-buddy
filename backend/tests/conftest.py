@@ -16,9 +16,12 @@ from app.db.base import Base
 from app.api.deps import (
     get_flashcard_generator_dep,
     get_generator_dep,
+    get_generators_dep,
     get_grader_dep,
+    get_indexer_dep,
     get_pipeline_dep,
     get_quiz_generator_dep,
+    get_rag_dep,
 )
 from app.db.session import get_db
 from app.main import create_app
@@ -28,7 +31,11 @@ from app.services.generation.flashcards import FlashcardGenerator
 from app.services.generation.quiz import QuizGenerator
 from app.services.generation.summary import LectureGenerator
 from app.services.grading import ShortAnswerGrader
+from app.services.indexing import LectureIndexer
 from app.services.llm.client import LLMClient
+from app.services.llm.generators import GeneratorRegistry
+from app.services.rag import RagService
+from app.services.vectorstore import ChromaVectorStore
 from app.services.llm.pricing import load_pricing
 from app.services.llm.prompts import PromptRegistry
 from app.services.media import media_from_settings
@@ -74,6 +81,9 @@ def settings(tmp_path) -> Settings:
         llm_backoff_max_sec=30.0,
         groq_tokens_per_minute=0,  # pacing has its own tests; keep the others instant
         summary_auto=False,  # Phase 4 tests stop at `transcribed`; summary tests turn it on
+        # The fake bag-of-words embedder's scores are not bge's, so tests use their own threshold
+        # instead of the production default (0.50, see test_rag_min_score_default).
+        rag_min_score=0.35,
     )
 
 
@@ -170,12 +180,40 @@ def flashcard_generator(settings, lecture_llm_client) -> FlashcardGenerator:
 
 
 @pytest.fixture
-def pipeline(settings, session_factory, storage, asr_client, generator) -> Pipeline:
-    return Pipeline(settings, session_factory, storage, media_from_settings(settings), asr_client, generator)
+def vector_store() -> ChromaVectorStore:
+    """Real Chroma, in memory (telemetry off), with a fresh collection per test."""
+    import uuid as _uuid
+
+    import chromadb
+    from chromadb.config import Settings as ChromaSettings
+
+    client = chromadb.EphemeralClient(settings=ChromaSettings(anonymized_telemetry=False))
+    return ChromaVectorStore(client=client, collection=f"test_{_uuid.uuid4().hex}")
 
 
 @pytest.fixture
-def app(settings, session_factory, pipeline, generator, quiz_generator, grader, flashcard_generator) -> FastAPI:
+def indexer(settings, embedding_client, vector_store) -> LectureIndexer:
+    return LectureIndexer(settings, embedding_client, vector_store)
+
+
+@pytest.fixture
+def generator_registry(settings, lecture_llm_client) -> GeneratorRegistry:
+    return GeneratorRegistry(settings, lecture_llm_client)
+
+
+@pytest.fixture
+def rag(settings, embedding_client, vector_store, generator_registry) -> RagService:
+    return RagService(settings, embedding_client, vector_store, generator_registry)
+
+
+@pytest.fixture
+def pipeline(settings, session_factory, storage, asr_client, generator, indexer) -> Pipeline:
+    return Pipeline(settings, session_factory, storage, media_from_settings(settings), asr_client, generator, indexer)
+
+
+@pytest.fixture
+def app(settings, session_factory, pipeline, generator, quiz_generator, grader, flashcard_generator,
+        rag, indexer, generator_registry) -> FastAPI:
     application = create_app()
 
     def _get_db() -> Iterator[Session]:
@@ -189,6 +227,9 @@ def app(settings, session_factory, pipeline, generator, quiz_generator, grader, 
     application.dependency_overrides[get_quiz_generator_dep] = lambda: quiz_generator
     application.dependency_overrides[get_grader_dep] = lambda: grader
     application.dependency_overrides[get_flashcard_generator_dep] = lambda: flashcard_generator
+    application.dependency_overrides[get_rag_dep] = lambda: rag
+    application.dependency_overrides[get_indexer_dep] = lambda: indexer
+    application.dependency_overrides[get_generators_dep] = lambda: generator_registry
     return application
 
 

@@ -519,6 +519,14 @@ Tests: a refusal for an off-topic question when using a fake retriever with low 
 ```
 **Checks:** an on-topic question returns correct timestamps · "Who won the 2022 World Cup?" asked about a biology lecture returns `answerable:false` · follow-up questions work.
 
+*Phase 7 changes:*
+- **Embeddings:** reuses the Phase 6 `EmbeddingClient` (no second embedding wrapper). bge's retrieval instruction (`EMBEDDING_QUERY_PREFIX`) is added to search queries only.
+- **Chroma:** the collection uses `{"hnsw:space": "cosine"}`, and score = 1 − distance.
+- **Threshold:** `RAG_MIN_SCORE` is a first filter only, because the answer prompt can still return `answerable=false` (`refusal_reason`: `below_threshold` | `not_in_chunks`). `scripts/calibrate_rag.py` proposes the threshold from real retrieval scores. The default is **0.50**, a judgement call based on the calibration (on-topic min 0.580, off-topic median 0.487) rather than the fitted 0.573, and it is to be re-checked in Phase 11 (see [docs/rag.md](docs/rag.md#3-calibrating-rag_min_score)).
+- **Generators:** they live in a registry (`cloud` | `finetuned` | `base`, more via `ANSWER_GENERATORS`), and `/ask`'s `model` accepts any registered name. Ollama generators make one attempt, so a stopped Ollama gives an immediate 503.
+- **Indexing:** lectures transcribed earlier are indexed on their first question.
+- **Logging and extras:** a new `qa_logs` table stores per-question scores, refusals and end-to-end latency (M4). `GET /models` and `GET /lectures/{id}/chat` (session list) were added, and `/health` now checks the vector store.
+
 ### Phase 8: React frontend
 ```
 Implement Phase 8 using the §9 page list and visual style. Typed API client (axios + TanStack Query) with JWT handling, a 401 redirect, and error and success toasts.
@@ -599,7 +607,7 @@ Then draft the technical report as a Word document, using only real results.
 - [x] Phase 4: Upload & transcription
 - [x] Phase 5: Summary & notes
 - [x] Phase 6: Quiz & flashcards
-- [ ] Phase 7: RAG & chat
+- [x] Phase 7: RAG & chat
 - [ ] Phase 8: Frontend
 - [ ] Phase 9: Learning features
 - [ ] Phase 10: Fine-tuning

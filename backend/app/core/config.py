@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # backend/app/core/config.py -> parents[2] is backend/, parents[3] is the repository root
@@ -15,6 +15,15 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 REPO_ROOT = BACKEND_DIR.parent
 
 ProviderName = Literal["groq", "openai", "ollama"]
+
+
+class GeneratorConfig(BaseModel):
+    """One answer generator for /ask and /chat (see services/llm/generators.py)."""
+
+    provider: ProviderName
+    model: str = Field(min_length=1)
+    max_retries: int | None = Field(None, ge=0, description="null = LLM_MAX_RETRIES")
+    description: str = ""
 
 
 class Settings(BaseSettings):
@@ -86,9 +95,25 @@ class Settings(BaseSettings):
     # --- Embeddings & retrieval ---
     embedding_model: str = "BAAI/bge-small-en-v1.5"  # loaded on first use, not at startup
     embedding_device: str = "cpu"  # cpu | cuda
+    # bge models expect this instruction in front of SEARCH QUERIES only (never stored chunks).
+    embedding_query_prefix: str = "Represent this sentence for searching relevant passages: "
     chroma_dir: str = "../storage/chroma"
+    chroma_collection: str = "lecture_chunks"  # the app environment is appended (lecture_chunks_development)
+    chunk_target_words: int = 350  # transcript chunk size for retrieval
+    chunk_max_sec: float = 90.0  # ... and maximum chunk length in seconds
+    chunk_overlap: float = 0.15  # share of a chunk's words repeated at the start of the next one
     rag_top_k: int = 5
-    rag_min_score: float = 0.35
+    # Cosine similarity; below it the app refuses without calling the LLM. 0.50 is a judgement call
+    # based on the Phase 7 calibration (demo lecture: on-topic min 0.580, off-topic median 0.487),
+    # not a fitted value; re-check with the golden set in Phase 11. See docs/rag.md §3.
+    rag_min_score: float = 0.50
+    rag_history_turns: int = 6  # chat: previous user+assistant pairs used to rewrite a follow-up
+    rag_rewrite_generator: str = "cloud"  # generator (registry name) that rewrites follow-up questions
+    rag_max_question_chars: int = 1000
+    # Extra answer generators, added WITHOUT code changes, as JSON, e.g.
+    # ANSWER_GENERATORS={"small": {"provider": "groq", "model": "openai/gpt-oss-20b"}}
+    # A name that matches a built-in (cloud, finetuned, base) overrides it.
+    answer_generators: dict[str, GeneratorConfig] = {}
 
     # --- SLM via Ollama ---
     finetuned_base_url: str = "http://localhost:11434/v1"
@@ -100,6 +125,12 @@ class Settings(BaseSettings):
         if self.app_env == "production" and (self.secret_key == "change-me" or len(self.secret_key) < 32):
             raise ValueError("SECRET_KEY must be a random value of at least 32 characters when APP_ENV=production")
         return self
+
+    @property
+    def chroma_path(self) -> Path:
+        """CHROMA_DIR as an absolute path; a relative value is resolved against backend/."""
+        p = Path(self.chroma_dir)
+        return p if p.is_absolute() else (BACKEND_DIR / p).resolve()
 
     @property
     def storage_path(self) -> Path:

@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, Query, Response, UploadFile, status
 
-from app.api.deps import AppSettings, CurrentUser, DbSession, Generator, LecturePipeline, MediaTools, Storage
+from app.api.deps import AppSettings, CurrentUser, DbSession, Generator, Indexer, LecturePipeline, MediaTools, Storage
 from app.models.lecture import LectureOutput, OutputKind
 from app.schemas.errors import error_responses
 from app.schemas.lectures import LectureOut, LectureStatusOut, SegmentOut, TranscriptOut, UploadResponse
@@ -80,11 +80,12 @@ def get_status(lecture_id: uuid.UUID, user: CurrentUser, db: DbSession) -> Lectu
 @router.delete(
     "/{lecture_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete a lecture, its transcript and its files",
+    summary="Delete a lecture, its transcript, its files and its search vectors",
     responses=error_responses(401, 404),
 )
-def delete_lecture(lecture_id: uuid.UUID, user: CurrentUser, db: DbSession, storage: Storage) -> Response:
-    lecture_service.delete_lecture(db, user, lecture_id, storage)
+def delete_lecture(lecture_id: uuid.UUID, user: CurrentUser, db: DbSession, storage: Storage,
+                   indexer: Indexer) -> Response:
+    lecture_service.delete_lecture(db, user, lecture_id, storage, remove_vectors=indexer.remove)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

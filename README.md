@@ -4,10 +4,10 @@ A web app that turns recorded lectures into transcripts, notes, quizzes, flashca
 
 - **Design and phase plan:** [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 - **Rules for contributors and Claude Code:** [CLAUDE.md](CLAUDE.md)
-- **Docs:** [architecture](docs/architecture.md) · [REST API](docs/api.md) · [summary & notes](docs/summarization.md) · [quizzes & flashcards](docs/quizzes.md)
+- **Docs:** [architecture](docs/architecture.md) · [REST API](docs/api.md) · [summary & notes](docs/summarization.md) · [quizzes & flashcards](docs/quizzes.md) · [Q&A and chat](docs/rag.md)
 - **Runs on free tiers by default:** Groq for speech recognition (`whisper-large-v3-turbo`) and the LLM (`openai/gpt-oss-120b`, an open-weight model hosted on Groq). OpenAI is optional and only used if you set it explicitly.
 
-> Status: Phase 6 (quiz & flashcards). Upload a lecture recording; a background pipeline extracts the audio with ffmpeg, transcribes it with Groq Whisper, then writes a summary, key takeaways, definitions, topic-wise notes and revision notes with Groq `gpt-oss-120b`, all from the transcript only and with timestamps taken from the transcript. You can then generate validated quizzes (MCQ, true/false, short answer), get them graded with explanations and per-topic mastery, and study a flashcard deck with Leitner-box reviews. Everything runs on free tiers. The frontend is still an app shell with placeholder pages.
+> Status: Phase 7 (grounded Q&A and chat). Ask questions about a lecture and get answers from its transcript only, with the timestamps where it is said, or a clear "not covered in the lecture". Chat supports follow-up questions. Upload a lecture recording; a background pipeline extracts the audio with ffmpeg, transcribes it with Groq Whisper, then writes a summary, key takeaways, definitions, topic-wise notes and revision notes with Groq `gpt-oss-120b`, all from the transcript only and with timestamps taken from the transcript. You can then generate validated quizzes (MCQ, true/false, short answer), get them graded with explanations and per-topic mastery, and study a flashcard deck with Leitner-box reviews. Everything runs on free tiers. The frontend is still an app shell with placeholder pages.
 
 ## Stack
 FastAPI · Pydantic v2 · PostgreSQL 16 (Docker) · React 18 + Vite + TypeScript · Tailwind CSS v4 · shadcn/ui · React Router
@@ -105,6 +105,23 @@ It prints the summary, takeaways, definitions and topics with their timestamps, 
 It generates a quiz on your newest `ready` lecture and prints the questions, then submits answers and shows the score, explanations, timestamps, grader and topic mastery. After that it generates the flashcard deck and reviews one card. In Swagger: `POST /api/lectures/{id}/generate-quiz`, `POST /api/quizzes/{quiz_id}/submit`, `POST /api/lectures/{id}/flashcards`, `POST /api/flashcards/{card_id}/review`. How it works: [docs/quizzes.md](docs/quizzes.md).
 
 **Embedding model (local, free):** when the LLM grader is unavailable, short answers are graded by meaning similarity using `BAAI/bge-small-en-v1.5`. It downloads (~130 MB) and loads on first use, not at startup. To fetch it ahead of time and check it works, run `python -m scripts.embedding_smoke`. The `pip install -r requirements.txt` step now includes PyTorch (CPU), which takes a few minutes. **Linux/Docker:** run `pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu` first, to avoid ~2 GB of CUDA packages. On Windows, Hugging Face may warn that symlinks are unsupported. The warning is harmless; set `HF_HUB_DISABLE_SYMLINKS_WARNING=1` to hide it.
+
+**Try Q&A and chat:** on a lecture that is `ready` (older lectures are indexed on their first question), run:
+
+| Windows (PowerShell) | macOS / Linux |
+|---|---|
+| `.\scripts\manual_phase7.ps1` | `bash scripts/manual_phase7.sh` |
+| `.\scripts\manual_phase7.ps1 -LectureId <id> -Question "..." -FollowUp "..."` | `LECTURE_ID=<id> QUESTION="..." bash scripts/manual_phase7.sh` |
+
+It asks an on-topic, an off-topic and a near-topic question, holds a two-turn chat with a follow-up, and tries the `finetuned` generator, which returns 503 until Ollama is set up in Phase 10. It prints each answer, its refusal reason, scores and cited timestamps. In Swagger: `POST /api/lectures/{id}/ask`, `POST /api/lectures/{id}/chat`, `GET /api/models`.
+
+**Calibrate the refusal threshold on your lecture** (free: only the local embedding model runs, no LLM calls):
+
+```bash
+python -m scripts.calibrate_rag --lecture-id <id>      # questions: eval/calibration/demo_lecture_questions.json
+```
+
+It prints the best retrieval score of each on-topic and off-topic question and proposes `RAG_MIN_SCORE` from those scores. How it works: [docs/rag.md](docs/rag.md).
 
 Offline speech recognition (optional): `pip install -r requirements-asr-local.txt` and set `ASR_PROVIDER=local` in `.env` (slower on CPU; the first run downloads the model).
 

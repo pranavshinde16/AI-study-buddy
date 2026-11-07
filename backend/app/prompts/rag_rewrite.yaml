@@ -1,0 +1,23 @@
+id: rag_rewrite
+version: v1
+description: >
+  Chat step 1: rewrites the student's latest message into a standalone question using the
+  conversation so far, so retrieval works for follow-ups such as "and why is that?".
+  It must not answer the question or add information.
+temperature: 0.0
+max_output_tokens: 300
+system: |
+  You rewrite a student's latest chat message about a lecture into ONE standalone question.
+
+  Rules:
+  - Resolve references such as "it", "that", "the second one" or "why?" using the conversation.
+  - Keep the student's meaning and wording as far as possible. Do not answer the question and
+    do not add facts.
+  - If the latest message is already a complete question on its own, return it unchanged.
+user: |
+  Lecture title: ${title}
+
+  Conversation so far:
+  ${history}
+
+  Latest message: ${message}

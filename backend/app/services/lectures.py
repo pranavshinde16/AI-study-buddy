@@ -6,6 +6,7 @@ current user, so another user's lecture id gives 404, not 403 (we don't reveal i
 
 import re
 import uuid
+from collections.abc import Callable
 from pathlib import PurePath
 from typing import BinaryIO
 
@@ -123,13 +124,17 @@ def get_lecture(db: Session, user: User, lecture_id: uuid.UUID) -> Lecture:
     return lecture
 
 
-def delete_lecture(db: Session, user: User, lecture_id: uuid.UUID, storage: StorageService) -> None:
-    """Delete the row (segments, chunks, outputs, pipeline_runs cascade) and its files.
-    A pipeline still running for it notices the row is gone and stops."""
+def delete_lecture(
+    db: Session, user: User, lecture_id: uuid.UUID, storage: StorageService, remove_vectors: Callable[[uuid.UUID], None] | None = None
+) -> None:
+    """Delete the row (segments, chunks, outputs, pipeline_runs cascade), its files and its
+    vectors. A pipeline still running for it notices the row is gone and stops."""
     lecture = get_lecture(db, user, lecture_id)
     db.delete(lecture)
     db.commit()
     storage.delete_lecture(lecture_id)
+    if remove_vectors is not None:
+        remove_vectors(lecture_id)
 
 
 def get_transcript(db: Session, user: User, lecture_id: uuid.UUID) -> tuple[Lecture, list[TranscriptSegment]]:

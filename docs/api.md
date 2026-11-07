@@ -2,7 +2,7 @@
 
 Base URL: `http://localhost:8000/api` · interactive docs: http://localhost:8000/docs (Swagger UI) · schema: `/openapi.json`.
 
-This page covers the endpoints implemented through **Phase 6**. The JSON below shows **shapes** with placeholder values, not real outputs.
+This page covers the endpoints implemented through **Phase 7**. The JSON below shows **shapes** with placeholder values, not real outputs.
 
 ## Conventions
 
@@ -15,7 +15,7 @@ This page covers the endpoints implemented through **Phase 6**. The JSON below s
 
 | Method | Path | Purpose | Success |
 |---|---|---|---|
-| GET | `/health` | Liveness + database check | 200 |
+| GET | `/health` | Liveness + database and vector-store checks | 200 |
 | POST | `/auth/register` | Create an account | 201 |
 | POST | `/auth/login` | Get a JWT | 200 |
 | GET | `/auth/me` | Current user | 200 |
@@ -35,6 +35,11 @@ This page covers the endpoints implemented through **Phase 6**. The JSON below s
 | POST | `/lectures/{id}/flashcards` | Generate the flashcard deck (cached) | 200 |
 | GET | `/lectures/{id}/flashcards?due=true` | The deck, optionally only cards due now | 200 |
 | POST | `/flashcards/{card_id}/review` | Record knew / didn't know (Leitner box) | 200 |
+| POST | `/lectures/{id}/ask` | One grounded question (answer + timestamped sources, or a refusal) | 200 |
+| POST | `/lectures/{id}/chat` | Multi-turn chat (`session_id`); follow-ups are rewritten | 200 |
+| GET | `/lectures/{id}/chat` | Your chat sessions for the lecture | 200 |
+| GET | `/lectures/{id}/chat/{session_id}` | Chat history with sources | 200 |
+| GET | `/models` | Answer generators for `model` (cloud, finetuned, base, configured) | 200 |
 
 ## Auth
 
@@ -65,6 +70,7 @@ If no title is given it is built from the file name. Errors:
 ```
 Status values (see [architecture.md](architecture.md#status-values)):
 - `uploaded`, `extracting_audio`, `transcribing`: processing.
+- `indexing`: chunks of the transcript are embedded for search (the transcript is already readable).
 - `transcribed`: the transcript is available.
 - `generating`: summary and notes in progress.
 - `ready`: everything is available.
@@ -211,16 +217,53 @@ How questions are generated, validated and graded: [quizzes.md](quizzes.md). Qui
 
 **POST `/flashcards/{card_id}/review`** `{"knew": true}` → the updated card. Knowing a card moves it up one box (at most 5). Box 2 is due again in 1 day, box 3 in 3 days, box 4 in 7 and box 5 in 14. Not knowing it sends the card back to box 1, due now. Errors: `404 FLASHCARD_NOT_FOUND`, `422 VALIDATION_ERROR`.
 
+## Ask and chat
+
+How retrieval, the threshold, refusals and generators work: [rag.md](rag.md). These endpoints need a transcript (`409 LECTURE_NOT_READY` otherwise), not a summary. A lecture without a search index is indexed on its first question.
+
+**POST `/lectures/{id}/ask`**
+```json
+{ "question": "What are the two types of serverless architecture?", "model": "cloud" }
+```
+`model` is `"cloud"` (default), `"finetuned"` or `"base"`, or a name added via `ANSWER_GENERATORS` (see `GET /models`). →
+```json
+{ "answer": "… [C1].", "answerable": true,
+  "sources": [ { "chunk_id": "C1", "chunk_idx": 0, "start": 0.0, "end": 86.4, "excerpt": "…", "score": 0.79, "cited": true } ],
+  "meta": { "generator": "cloud", "provider": "groq", "model": "…", "prompt_version": "rag_answer@v1",
+            "rewritten_question": null, "refusal_reason": null, "top_score": 0.79, "scores": [0.79, 0.6],
+            "min_score": 0.5, "top_k": 5, "retrieval_ms": 0.0, "latency_ms": 0.0, "llm_calls": 1,
+            "input_tokens": 0, "output_tokens": 0, "citations_dropped": [], "citation_check": "ok",
+            "indexed_now": false, "chunks": 4 } }
+```
+- **Refusals:** a refusal has `answerable: false`, `refusal_reason` `below_threshold` (no LLM call) or `not_in_chunks` (the model found no answer), and an answer like "This isn't covered in the lecture. The closest parts of the lecture are at 00:00–01:26, …". Its `sources` are the closest chunks, with `cited: false`.
+- **Timestamps:** `start`/`end` are seconds from the transcript segments.
+- **Errors:**
+  - `422 UNKNOWN_GENERATOR` (`details.available`), `422 VALIDATION_ERROR` (empty, or longer than `RAG_MAX_QUESTION_CHARS`).
+  - `409 LECTURE_NOT_READY`, `409 INDEXING_IN_PROGRESS`.
+  - `429 RATE_LIMITED`.
+  - `503 MODEL_UNAVAILABLE`: for `finetuned`/`base`, Ollama isn't running or the model isn't installed; the message says how to fix it.
+  - `502 LLM_OUTPUT_INVALID`.
+
+**POST `/lectures/{id}/chat`**
+```json
+{ "message": "Can you give an example of the first one?", "session_id": "<uuid or null>", "model": "cloud" }
+```
+→ the `/ask` shape plus `session_id`, `message_id`, `question` and `rewritten_question` (the standalone question used for retrieval; `null` on the first turn). Send `session_id` back to continue. Errors are as for `/ask`, plus `404 CHAT_SESSION_NOT_FOUND`.
+
+**GET `/lectures/{id}/chat`** → `[{"session_id", "title", "created_at", "messages"}]`. **GET `/lectures/{id}/chat/{session_id}`** → `{"session_id", "lecture_id", "title", "created_at", "messages": [{"id", "role", "content", "sources", "answerable", "model", "created_at"}]}`.
+
+**GET `/models`** → `[{"name": "cloud", "provider": "groq", "model": "openai/gpt-oss-120b", "description": "…"}, …]`.
+
 ## Error codes
 
 | HTTP | Code | Meaning |
 |---|---|---|
 | 401 | `NOT_AUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVALID_CREDENTIALS`, `ACCOUNT_DISABLED` | Auth problems |
-| 404 | `NOT_FOUND`, `LECTURE_NOT_FOUND`, `QUIZ_NOT_FOUND`, `FLASHCARD_NOT_FOUND` | Unknown route, or not yours |
-| 409 | `EMAIL_TAKEN`, `LECTURE_NOT_READY`, `GENERATION_IN_PROGRESS`, `NOTES_NOT_GENERATED` | State conflicts |
+| 404 | `NOT_FOUND`, `LECTURE_NOT_FOUND`, `QUIZ_NOT_FOUND`, `FLASHCARD_NOT_FOUND`, `CHAT_SESSION_NOT_FOUND` | Unknown route, or not yours |
+| 409 | `EMAIL_TAKEN`, `LECTURE_NOT_READY`, `GENERATION_IN_PROGRESS`, `NOTES_NOT_GENERATED`, `INDEXING_IN_PROGRESS` | State conflicts |
 | 413 | `FILE_TOO_LARGE` | Upload over `MAX_UPLOAD_MB` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Not MP3/WAV/MP4/M4A or no audio track |
-| 422 | `VALIDATION_ERROR`, `TRANSCRIPT_EMPTY`, `MEDIA_ERROR`, `ADAPTIVE_NOT_AVAILABLE` | Bad input / nothing to process |
+| 422 | `VALIDATION_ERROR`, `TRANSCRIPT_EMPTY`, `MEDIA_ERROR`, `ADAPTIVE_NOT_AVAILABLE`, `UNKNOWN_GENERATOR` | Bad input / nothing to process |
 | 429 | `RATE_LIMITED` | Provider rate limit after retries (`Retry-After` header when known) |
 | 500 | `INTERNAL_ERROR` | Unexpected; `details.error_type` names the exception |
 | 502 | `LLM_ERROR`, `LLM_OUTPUT_INVALID`, `QUIZ_GENERATION_FAILED` | Provider error / invalid JSON twice / no valid question |
@@ -241,4 +284,4 @@ curl -s "http://localhost:8000/api/lectures/<id>/transcript/download?format=srt"
 ```
 PowerShell token: `$TOKEN = (Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/auth/login -ContentType application/json -Body '{"email":"ada@example.com","password":"correct-horse-battery"}').access_token`.
 
-The complete scripted flows are in `backend/scripts/manual_phase4.*`, `manual_phase5.*` and `manual_phase6.*`.
+The complete scripted flows are in `backend/scripts/manual_phase4.*` to `manual_phase7.*`.

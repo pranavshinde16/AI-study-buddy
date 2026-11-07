@@ -1,0 +1,27 @@
+{
+  "description": "RAG_MIN_SCORE calibration set for the demo lecture 'Scalable recording' (serverless computing, 4:51). On-topic questions are about things the lecture explains; off-topic ones are not in it. Half of the off-topic questions are near the lecture's domain (computer science) on purpose: they are the hard case for a similarity threshold. Edit or replace this file for another lecture.",
+  "on_topic": [
+    "What does serverless computing mean if servers still exist?",
+    "Who manages the infrastructure, runtime and security in a serverless architecture?",
+    "What are the two types of serverless architecture?",
+    "What is Backend as a Service?",
+    "How can a developer add payments to an app without building the backend themselves?",
+    "What is Function as a Service?",
+    "Which cloud services were given as examples of serverless functions?",
+    "Why are high-latency multimedia applications a good fit for serverless computing?",
+    "When should you consider using serverless computing?",
+    "What can developers focus on when they use serverless?"
+  ],
+  "off_topic": [
+    "Who won the 2022 FIFA World Cup?",
+    "How does photosynthesis work in plants?",
+    "What caused the French Revolution?",
+    "What is the capital of Australia?",
+    "How do I bake sourdough bread?",
+    "What is the time complexity of quicksort?",
+    "How does an index speed up queries in a relational database?",
+    "What is the difference between TCP and UDP?",
+    "How do you train a convolutional neural network?",
+    "How does garbage collection work in Java?"
+  ]
+}

@@ -110,9 +110,17 @@ class FakeLectureLLM:
         self.quiz_always_invalid = False
         self.grading_skip: set[str] = set()  # item ids the fake grader leaves out
         self._quiz_calls = 0
+        # Phase 7: the RAG answer cites these ids ("C9" is normally not a real one, to test
+        # that invalid citations are dropped); set rag_answerable=False to make it refuse.
+        self.rag_answerable = True
+        self.rag_citations: list[str] = ["C1", "C9"]
 
     @staticmethod
     def task_of(system: str) -> str:
+        if '"citations"' in system:
+            return "rag_answer"
+        if '"standalone_question"' in system:
+            return "rag_rewrite"
         if '"slot"' in system:
             return "quiz"
         if '"grades"' in system:
@@ -161,6 +169,15 @@ class FakeLectureLLM:
             body = self._grades(user)
         elif task == "flashcards":
             body = self._cards(user)
+        elif task == "rag_answer":
+            inline = " ".join(f"[{c}]" for c in self.rag_citations)
+            body = {"answerable": self.rag_answerable,
+                    "answer": f"From the lecture: cells turn food into energy {inline}." if self.rag_answerable
+                    else "The excerpts don't cover this.",
+                    "citations": list(self.rag_citations) if self.rag_answerable else []}
+        elif task == "rag_rewrite":
+            latest = re.search(r"Latest message: (.*)", user).group(1).strip()
+            body = {"standalone_question": f"{latest} (about how cells make energy)"}
         else:
             body = {}
         return ok(json.dumps(body), model_version="openai/gpt-oss-120b", inp=300, out=120)

@@ -8,7 +8,9 @@
   in a process-wide singleton, so the ~130 MB download and the load happen only once.
 - Vectors are L2-normalised, so cosine similarity is a plain dot product (`cosine()`).
 - Every call writes one `llm_calls` row (provider="local", cost 0, latency, status).
-- Phase 6 uses it as the short-answer grading fallback; Phase 7 reuses it for RAG indexing/search.
+- Phase 6 uses it as the short-answer grading fallback; Phase 7 uses it for RAG:
+  `embed()` for stored chunks (no prefix) and `embed_queries()` for search questions, which
+  adds bge's retrieval instruction (EMBEDDING_QUERY_PREFIX) to the query only.
 """
 
 import hashlib
@@ -142,6 +144,19 @@ class EmbeddingClient:
         latency = (time.perf_counter() - start) * 1000
         self._log(task, model, lecture_id, user_id, request_hash, "ok", latency, None, n_texts=len(items))
         return vectors
+
+    def embed_queries(
+        self,
+        queries: Sequence[str],
+        *,
+        task: str = "rag_query",
+        lecture_id: uuid.UUID | None = None,
+        user_id: uuid.UUID | None = None,
+    ) -> list[list[float]]:
+        """Embed SEARCH QUERIES: adds EMBEDDING_QUERY_PREFIX (bge's retrieval instruction).
+        Stored chunks are embedded with `embed()` and never get the prefix."""
+        prefix = self.settings.embedding_query_prefix
+        return self.embed([prefix + q for q in queries], task=task, lecture_id=lecture_id, user_id=user_id)
 
     def _log(
         self,
