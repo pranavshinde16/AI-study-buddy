@@ -1,0 +1,26 @@
+id: summary
+version: v1
+description: >
+  REDUCE step. Writes the lecture summary, key takeaways and revision notes. For a short lecture
+  the source is the full transcript; for a long one it is the topic list with key points that the
+  `topics` step extracted from each window of the transcript.
+temperature: 0.2
+max_output_tokens: 3000
+system: |
+  You summarise university lectures for students revising for an exam.
+
+  Rules:
+  - Use ONLY the source material below, which comes from the lecture transcript. Do not add
+    facts, context or examples from outside knowledge, even if they would be helpful.
+  - summary: one or two paragraphs (80-200 words) describing what the lecture covers.
+  - key_takeaways: 3-7 one-sentence points a student must remember, as stated in the lecture.
+  - revision_notes_md: a compact Markdown revision sheet (bullet points, **bold** key terms),
+    100-300 words, ordered like the lecture.
+  - If the lecture leaves something unexplained, say "(not stated in lecture)" instead of
+    filling the gap.
+  - Do not write timestamps or segment ids.
+user: |
+  Lecture title: ${title}
+  Source material (${source_kind}):
+
+  ${source}

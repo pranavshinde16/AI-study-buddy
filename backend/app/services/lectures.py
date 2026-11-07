@@ -33,6 +33,7 @@ GENERIC_TYPES = frozenset({"application/octet-stream", ""})
 TRANSCRIPT_READY = frozenset(
     {LectureStatus.TRANSCRIBED, LectureStatus.INDEXING, LectureStatus.GENERATING, LectureStatus.READY}
 )
+# Stages that cannot resume after a restart (GENERATING is handled separately: back to transcribed).
 IN_PROGRESS = frozenset({LectureStatus.UPLOADED, LectureStatus.EXTRACTING_AUDIO, LectureStatus.TRANSCRIBING})
 
 

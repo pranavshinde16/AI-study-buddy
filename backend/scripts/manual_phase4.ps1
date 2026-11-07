@@ -51,7 +51,7 @@ do {
     $st = Invoke-RestMethod -Uri "$BaseUrl/api/lectures/$id/status" -Headers $headers
     $elapsed = [int]((Get-Date) - $started).TotalSeconds
     Write-Host ("[{0,4}s] {1,-16} {2,3}%  {3}" -f $elapsed, $st.status, $st.progress, $st.stage_detail)
-} while ($st.status -notin @("transcribed", "ready", "failed"))
+} while ($st.status -notin @("transcribed", "generating", "ready", "failed"))  # transcript exists from "transcribed" on
 
 if ($st.status -eq "failed") { throw "Pipeline failed: $($st.error)" }
 

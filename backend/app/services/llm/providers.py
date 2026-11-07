@@ -56,6 +56,7 @@ class ChatProvider(Protocol):
         json_mode: bool,
         max_output_tokens: int,
         temperature: float | None,
+        reasoning_effort: str | None = None,
     ) -> ChatResult: ...
 
 
@@ -103,12 +104,17 @@ class OpenAICompatibleProvider:
         json_mode: bool,
         max_output_tokens: int,
         temperature: float | None,
+        reasoning_effort: str | None = None,
     ) -> ChatResult:
         kwargs: dict[str, Any] = {"model": model, "messages": messages, "max_completion_tokens": max_output_tokens}
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
         if temperature is not None:
             kwargs["temperature"] = temperature
+        if reasoning_effort:
+            # gpt-oss / gpt-5 reasoning models: "low" keeps the hidden reasoning tokens (which count
+            # towards Groq's tokens-per-minute limit) small.
+            kwargs["reasoning_effort"] = reasoning_effort
 
         try:
             resp = self._client.chat.completions.create(**kwargs)

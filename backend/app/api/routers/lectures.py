@@ -1,4 +1,4 @@
-"""/api/lectures: upload, list, status, delete, transcript and transcript download.
+"""/api/lectures: upload, list, status, delete, transcript (+ download), summary and notes.
 HTTP only; the logic lives in services/lectures.py and workers/pipeline.py (CLAUDE.md rule 6)."""
 
 import uuid
@@ -6,10 +6,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, Query, Response, UploadFile, status
 
-from app.api.deps import AppSettings, CurrentUser, DbSession, LecturePipeline, MediaTools, Storage
+from app.api.deps import AppSettings, CurrentUser, DbSession, Generator, LecturePipeline, MediaTools, Storage
+from app.models.lecture import LectureOutput, OutputKind
 from app.schemas.errors import error_responses
 from app.schemas.lectures import LectureOut, LectureStatusOut, SegmentOut, TranscriptOut, UploadResponse
+from app.schemas.summaries import NotesResponse, SummarizeRequest, SummaryResponse
 from app.services import lectures as lecture_service
+from app.services import summaries as summary_service
 from app.services.transcript_format import MEDIA_TYPES, TranscriptFormat, render
 
 router = APIRouter(prefix="/lectures", tags=["lectures"])
@@ -119,4 +122,53 @@ def download_transcript(
         content=render(segments, format),
         media_type=MEDIA_TYPES[format],
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post(
+    "/{lecture_id}/summarize",
+    response_model=SummaryResponse,
+    summary="Summary, key takeaways, definitions, topic notes and revision notes (cached)",
+    description=(
+        "Returns the cached result instantly unless `regenerate` is true. Otherwise runs the LLM "
+        "(Groq free tier by default) synchronously; long lectures use map-reduce and can take a minute or more. "
+        "Everything is generated from the transcript only; timestamps come from transcript segments."
+    ),
+    responses=error_responses(401, 404, 409, 422, 429, 502, 503),
+)
+def summarize(
+    lecture_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+    generator: Generator,
+    body: SummarizeRequest | None = None,
+) -> SummaryResponse:
+    outputs, cached = summary_service.summarize(
+        db, user, lecture_id, regenerate=bool(body and body.regenerate), generator=generator
+    )
+    return _summary_response(lecture_id, outputs[OutputKind.SUMMARY], outputs[OutputKind.NOTES], cached)
+
+
+@router.get(
+    "/{lecture_id}/notes",
+    response_model=NotesResponse,
+    summary="Topic-wise notes with start/end timestamps",
+    responses=error_responses(401, 404, 409),
+)
+def get_notes(lecture_id: uuid.UUID, user: CurrentUser, db: DbSession) -> NotesResponse:
+    notes = summary_service.get_notes(db, user, lecture_id)
+    return NotesResponse(lecture_id=lecture_id, topics=notes.content_json["topics"], meta=notes.content_json["meta"])
+
+
+def _summary_response(lecture_id: uuid.UUID, summary: LectureOutput, notes: LectureOutput, cached: bool) -> SummaryResponse:
+    s = summary.content_json
+    return SummaryResponse(
+        lecture_id=lecture_id,
+        summary=s["summary"],
+        key_takeaways=s["key_takeaways"],
+        definitions=s["definitions"],
+        topics=notes.content_json["topics"],
+        revision_notes_md=s["revision_notes_md"],
+        meta=s["meta"],
+        cached=cached,
     )

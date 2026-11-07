@@ -12,15 +12,18 @@ from sqlalchemy.pool import StaticPool
 import app.models  # noqa: F401  (register all tables)
 from app.core.config import Settings, get_settings
 from app.db.base import Base
-from app.api.deps import get_pipeline_dep
+from app.api.deps import get_generator_dep, get_pipeline_dep
 from app.db.session import get_db
 from app.main import create_app
 from app.services.asr.client import ASRClient
+from app.services.generation.summary import LectureGenerator
+from app.services.llm.client import LLMClient
 from app.services.llm.pricing import load_pricing
+from app.services.llm.prompts import PromptRegistry
 from app.services.media import media_from_settings
 from app.services.storage import LocalStorage
 from app.workers.pipeline import Pipeline
-from tests.fakes import FakeASRProvider
+from tests.fakes import FakeASRProvider, FakeLectureLLM, FakeProvider
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +61,8 @@ def settings(tmp_path) -> Settings:
         llm_max_retries=3,
         llm_backoff_base_sec=2.0,
         llm_backoff_max_sec=30.0,
+        groq_tokens_per_minute=0,  # pacing has its own tests; keep the others instant
+        summary_auto=False,  # Phase 4 tests stop at `transcribed`; summary tests turn it on
     )
 
 
@@ -106,12 +111,34 @@ def storage(settings) -> LocalStorage:
 
 
 @pytest.fixture
-def pipeline(settings, session_factory, storage, asr_client) -> Pipeline:
-    return Pipeline(settings, session_factory, storage, media_from_settings(settings), asr_client)
+def fake_llm() -> FakeLectureLLM:
+    """Answers the topics/notes/summary prompts; set `.fail[task]` / `.invalid[task]` to break one."""
+    return FakeLectureLLM()
 
 
 @pytest.fixture
-def app(settings, session_factory, pipeline) -> FastAPI:
+def llm_provider(fake_llm) -> FakeProvider:
+    return FakeProvider("groq", responder=fake_llm)
+
+
+@pytest.fixture
+def lecture_llm_client(settings, session_factory, llm_provider) -> LLMClient:
+    return LLMClient(settings, session_factory, PromptRegistry(), load_pricing(),
+                     providers={"groq": llm_provider}, sleep=lambda _s: None, rate_limiters={})
+
+
+@pytest.fixture
+def generator(settings, lecture_llm_client) -> LectureGenerator:
+    return LectureGenerator(settings, lecture_llm_client)
+
+
+@pytest.fixture
+def pipeline(settings, session_factory, storage, asr_client, generator) -> Pipeline:
+    return Pipeline(settings, session_factory, storage, media_from_settings(settings), asr_client, generator)
+
+
+@pytest.fixture
+def app(settings, session_factory, pipeline, generator) -> FastAPI:
     application = create_app()
 
     def _get_db() -> Iterator[Session]:
@@ -121,6 +148,7 @@ def app(settings, session_factory, pipeline) -> FastAPI:
     application.dependency_overrides[get_db] = _get_db
     application.dependency_overrides[get_settings] = lambda: settings
     application.dependency_overrides[get_pipeline_dep] = lambda: pipeline
+    application.dependency_overrides[get_generator_dep] = lambda: generator
     return application
 
 

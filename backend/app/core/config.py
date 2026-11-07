@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     llm_backoff_max_sec: float = 30.0
     llm_timeout_sec: float = 120.0
     llm_max_output_tokens: int = 4096
+    llm_reasoning_effort: str = "low"  # low | medium | high | "" (provider default); sent to groq/openai only
+    groq_tokens_per_minute: int = 8000  # client-side pacing for Groq's free-tier TPM limit; 0 = off
+
+    # --- Summary & notes (Phase 5) ---
+    summary_auto: bool = True  # generate summary + topic notes automatically after transcription
+    summary_single_pass_max_tokens: int = 3500  # longer transcripts are processed in windows (map-reduce)
+    summary_window_sec: int = 600  # target window length for map-reduce (~10 min)
+    summary_window_max_tokens: int = 2500  # hard cap per window so one request fits the free-tier TPM
 
     # --- Retrieval ---
     embedding_model: str = "BAAI/bge-small-en-v1.5"

@@ -40,7 +40,7 @@ while true; do
   ST=$(curl -s "$BASE_URL/api/lectures/$ID/status" -H "$AUTH")
   STATUS=$(echo "$ST" | json 'd["status"]')
   echo "[$(( $(date +%s) - START ))s] $(echo "$ST" | json 'f"{d[\"status\"]:<16} {d[\"progress\"]:>3}%  {d[\"stage_detail\"] or \"\"}"')"
-  case "$STATUS" in transcribed|ready) break ;; failed) echo "Pipeline failed: $(echo "$ST" | json 'd["error"]')" >&2; exit 1 ;; esac
+  case "$STATUS" in transcribed|generating|ready) break ;;  # transcript exists from "transcribed" on failed) echo "Pipeline failed: $(echo "$ST" | json 'd["error"]')" >&2; exit 1 ;; esac
 done
 
 # 4. Transcript + downloads.

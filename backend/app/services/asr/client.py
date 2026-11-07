@@ -17,7 +17,6 @@ from functools import lru_cache
 from pathlib import Path
 
 import structlog
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import Settings
@@ -29,6 +28,7 @@ from app.services.llm.errors import (
     ProviderNotConfiguredError,
     RateLimitedError,
 )
+from app.services.llm.calllog import save_call
 from app.services.llm.pricing import PricingTable
 from app.services.llm.providers import ProviderError
 from app.services.llm.retry import backoff_delay
@@ -167,26 +167,7 @@ class ASRClient:
         )
         log.info("asr_call", provider=provider, model=model, attempt=attempt, status=status,
                  latency_ms=row.latency_ms, cost_usd=cost_usd)
-        for attempt_row in (row, _unlinked(row)):
-            try:
-                with self._session_factory() as session:
-                    session.add(attempt_row)
-                    session.commit()
-                return
-            except IntegrityError:
-                # The lecture/user was deleted mid-request: keep the call for metrics, unlinked.
-                continue
-            except Exception as exc:  # noqa: BLE001 - logging must never break the pipeline
-                log.warning("asr_call_log_failed", error_type=type(exc).__name__)
-                return
-        log.warning("asr_call_log_failed", error_type="IntegrityError")
-
-
-def _unlinked(row: LLMCall) -> LLMCall:
-    """Copy of the row without lecture/user links."""
-    skip = {"id", "lecture_id", "user_id"}
-    cols = {c.key: getattr(row, c.key) for c in LLMCall.__table__.columns if c.key not in skip}
-    return LLMCall(**{k: v for k, v in cols.items() if v is not None})  # unset -> DB defaults (e.g. ts)
+        save_call(self._session_factory, row)
 
 
 @lru_cache

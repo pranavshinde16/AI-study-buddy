@@ -1,0 +1,161 @@
+# REST API
+
+Base URL: `http://localhost:8000/api` · interactive docs: http://localhost:8000/docs (Swagger UI) · schema: `/openapi.json`.
+
+This page covers the endpoints implemented through **Phase 5**. The JSON below shows **shapes** with placeholder values, not real outputs.
+
+## Conventions
+
+- **Auth:** every endpoint except `/health`, `/auth/register` and `/auth/login` needs `Authorization: Bearer <access_token>`.
+- **Errors:** always `{"error": {"code": "...", "message": "...", "details": {...}}}`. Each response also has an `X-Request-ID` header that matches the server's log lines.
+- **Times:** seconds from the start of the lecture (floats). They always come from transcript segments.
+- **Ownership:** a lecture that belongs to another user returns `404 LECTURE_NOT_FOUND`.
+
+## Endpoints
+
+| Method | Path | Purpose | Success |
+|---|---|---|---|
+| GET | `/health` | Liveness + database check | 200 |
+| POST | `/auth/register` | Create an account | 201 |
+| POST | `/auth/login` | Get a JWT | 200 |
+| GET | `/auth/me` | Current user | 200 |
+| POST | `/lectures/upload` | Upload MP3/WAV/MP4/M4A and start processing | 202 |
+| GET | `/lectures` | Your lectures, newest first | 200 |
+| GET | `/lectures/{id}` | Lecture metadata | 200 |
+| GET | `/lectures/{id}/status` | Pipeline stage and progress | 200 |
+| DELETE | `/lectures/{id}` | Delete the lecture, its transcript, outputs and files | 204 |
+| GET | `/lectures/{id}/transcript` | Timestamped segments | 200 |
+| GET | `/lectures/{id}/transcript/download?format=txt\|srt\|vtt` | File download | 200 |
+| POST | `/lectures/{id}/summarize` | Summary, takeaways, definitions, topic notes, revision notes (cached) | 200 |
+| GET | `/lectures/{id}/notes` | Topic-wise notes | 200 |
+
+## Auth
+
+**POST `/auth/register`** `{"email": "ada@example.com", "password": "at-least-8-chars", "full_name": "Ada"}` → `201` user object. Errors: `409 EMAIL_TAKEN`, `422 VALIDATION_ERROR` (password 8–128 characters and at most 72 bytes).
+
+**POST `/auth/login`** `{"email": "...", "password": "..."}` →
+```json
+{ "access_token": "<jwt>", "token_type": "bearer", "expires_in": 86400 }
+```
+Errors: `401 INVALID_CREDENTIALS`, `401 ACCOUNT_DISABLED`.
+
+**GET `/auth/me`** → `{"id", "email", "full_name", "is_active", "created_at"}`. Errors: `401 NOT_AUTHENTICATED`, `401 TOKEN_EXPIRED`, `401 INVALID_TOKEN`.
+
+## Lectures
+
+**POST `/lectures/upload`** (multipart form: `file`, optional `title`) → `202`
+```json
+{ "lecture_id": "<uuid>", "title": "Intro to Neural Nets", "status": "uploaded", "status_url": "/api/lectures/<uuid>/status" }
+```
+If no title is given it is built from the file name. Errors:
+- `415 UNSUPPORTED_MEDIA_TYPE`: the extension isn't allowed, the content type doesn't match, or the file has no readable audio track.
+- `413 FILE_TOO_LARGE`: over `MAX_UPLOAD_MB`.
+- `503 FFMPEG_NOT_FOUND`: ffmpeg is not installed on the server.
+
+**GET `/lectures/{id}/status`**
+```json
+{ "status": "generating", "progress": 85, "stage_detail": "Generating summary: notes 2 of 4", "error": null }
+```
+Status values (see [architecture.md](architecture.md#status-values)):
+- `uploaded`, `extracting_audio`, `transcribing`: processing.
+- `transcribed`: the transcript is available.
+- `generating`: summary and notes in progress.
+- `ready`: everything is available.
+- `failed`: see `error`.
+
+If `status` is `transcribed` and `error` is not null, the summary failed and can be retried.
+
+**GET `/lectures/{id}`** → `{"id", "title", "original_filename", "status", "progress", "stage_detail", "error", "duration_sec", "language", "size_bytes", "created_at", "updated_at"}`.
+
+**DELETE `/lectures/{id}`** → `204`. Removes the rows (segments, outputs and pipeline runs cascade) and the stored files. The `llm_calls` rows are kept for metrics, unlinked from the lecture.
+
+## Transcript
+
+**GET `/lectures/{id}/transcript`**
+```json
+{ "lecture_id": "<uuid>", "duration_sec": 291.8, "language": "English",
+  "segments": [ { "id": 0, "start": 0.0, "end": 2.3, "text": "..." } ] }
+```
+Errors: `409 LECTURE_NOT_READY` before the transcript exists. Its `details` holds the current `status` and `progress`.
+
+**GET `/lectures/{id}/transcript/download?format=srt`** returns a file (`Content-Disposition: attachment`):
+- `txt`: `[MM:SS] text` lines
+- `srt`: numbered SubRip cues, `HH:MM:SS,mmm`
+- `vtt`: WebVTT, `HH:MM:SS.mmm`
+
+An invalid format returns `422`.
+
+## Summary and notes
+
+**POST `/lectures/{id}/summarize`**: the body is optional, default `{"regenerate": false}`.
+```json
+{
+  "lecture_id": "<uuid>",
+  "summary": "…",
+  "key_takeaways": ["…"],
+  "definitions": [ { "term": "…", "definition": "…", "timestamp": 49.0 } ],
+  "topics": [ { "title": "…", "start": 0.0, "end": 168.0, "notes_md": "- …", "key_points": ["…"] } ],
+  "revision_notes_md": "- …",
+  "meta": {
+    "provider": "groq", "model": "openai/gpt-oss-120b", "model_version": "…",
+    "prompt_version": "summary@v1",
+    "prompt_versions": { "topics": "topics@v1", "notes": "notes@v1", "summary": "summary@v1" },
+    "mode": "single_pass", "windows": 1, "llm_calls": 4,
+    "input_tokens": 0, "output_tokens": 0, "llm_latency_ms": 0.0, "generated_at": "…"
+  },
+  "cached": false
+}
+```
+- **When it generates:**
+  - With a cached result and `regenerate: false`, it returns immediately with `"cached": true`.
+  - Otherwise it runs the LLM synchronously. For a long lecture on the free tier this can take minutes.
+- **Field notes:**
+  - `definitions[].timestamp` is `null` when the model pointed at a segment outside the part of the lecture it was given.
+  - `meta.mode` is `single_pass` or `map_reduce`. The `meta` numbers are real counts from that run (see [summarization.md](summarization.md)).
+- **Errors:**
+  - `409 LECTURE_NOT_READY`: there is no transcript yet.
+  - `409 GENERATION_IN_PROGRESS`: a generation is already running.
+  - `422 TRANSCRIPT_EMPTY`: no speech was recognised.
+  - `429 RATE_LIMITED`: Groq is still rate-limiting after retries. There is no paid fallback.
+  - `503 MODEL_UNAVAILABLE`, `503 PROVIDER_NOT_CONFIGURED`.
+  - `502 LLM_OUTPUT_INVALID`: the model returned invalid JSON twice.
+
+**GET `/lectures/{id}/notes`**
+```json
+{ "lecture_id": "<uuid>",
+  "topics": [ { "title": "…", "start": 0.0, "end": 168.0, "notes_md": "- …", "key_points": ["…"] } ],
+  "meta": { "...": "same as above" } }
+```
+Errors: `409 NOTES_NOT_GENERATED` (call `POST /summarize`) and `409 GENERATION_IN_PROGRESS`.
+
+## Error codes
+
+| HTTP | Code | Meaning |
+|---|---|---|
+| 401 | `NOT_AUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVALID_CREDENTIALS`, `ACCOUNT_DISABLED` | Auth problems |
+| 404 | `NOT_FOUND`, `LECTURE_NOT_FOUND` | Unknown route, or not your lecture |
+| 409 | `EMAIL_TAKEN`, `LECTURE_NOT_READY`, `GENERATION_IN_PROGRESS`, `NOTES_NOT_GENERATED` | State conflicts |
+| 413 | `FILE_TOO_LARGE` | Upload over `MAX_UPLOAD_MB` |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` | Not MP3/WAV/MP4/M4A or no audio track |
+| 422 | `VALIDATION_ERROR`, `TRANSCRIPT_EMPTY`, `MEDIA_ERROR` | Bad input / nothing to process |
+| 429 | `RATE_LIMITED` | Provider rate limit after retries (`Retry-After` header when known) |
+| 500 | `INTERNAL_ERROR` | Unexpected; `details.error_type` names the exception |
+| 502 | `LLM_ERROR`, `LLM_OUTPUT_INVALID` | Provider error / invalid JSON twice |
+| 503 | `MODEL_UNAVAILABLE`, `PROVIDER_NOT_CONFIGURED`, `FFMPEG_NOT_FOUND` | Model or tool not available |
+
+## Try it with curl
+
+These examples use `curl` on macOS/Linux. On Windows PowerShell, type `curl.exe` instead of `curl`, and use the `$TOKEN` syntax shown in the last line.
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"ada@example.com","password":"correct-horse-battery"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+curl -s -X POST http://localhost:8000/api/lectures/upload -H "Authorization: Bearer $TOKEN" -F "file=@lecture.mp3"
+curl -s http://localhost:8000/api/lectures/<id>/status -H "Authorization: Bearer $TOKEN"
+curl -s -X POST http://localhost:8000/api/lectures/<id>/summarize -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"regenerate": false}'
+curl -s "http://localhost:8000/api/lectures/<id>/transcript/download?format=srt" -H "Authorization: Bearer $TOKEN" -o lecture.srt
+```
+PowerShell token: `$TOKEN = (Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/auth/login -ContentType application/json -Body '{"email":"ada@example.com","password":"correct-horse-battery"}').access_token`.
+
+The complete scripted flows are in `backend/scripts/manual_phase4.*` and `manual_phase5.*`.

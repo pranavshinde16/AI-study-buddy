@@ -1,4 +1,4 @@
-"""Shared FastAPI dependencies: DB session, settings, current user, storage, ffmpeg, pipeline."""
+"""Shared FastAPI dependencies: DB session, settings, current user, storage, ffmpeg, pipeline, generator."""
 
 import uuid
 from typing import Annotated
@@ -14,6 +14,7 @@ from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.user import User
 from app.services.auth import get_active_user
+from app.services.generation.summary import LectureGenerator, get_lecture_generator
 from app.services.media import Media, media_from_settings
 from app.services.storage import StorageService, storage_from_settings
 from app.workers.pipeline import Pipeline, get_pipeline
@@ -57,6 +58,11 @@ def get_media_dep(settings: AppSettings) -> Media:
     return media_from_settings(settings)
 
 
+def get_generator_dep() -> LectureGenerator:
+    """Overridden in tests with a generator that uses a fake LLM provider."""
+    return get_lecture_generator()
+
+
 def get_pipeline_dep() -> Pipeline:
     """Overridden in tests with a pipeline that uses the test DB and a fake ASR provider."""
     return get_pipeline()
@@ -65,3 +71,4 @@ def get_pipeline_dep() -> Pipeline:
 Storage = Annotated[StorageService, Depends(get_storage_dep)]
 MediaTools = Annotated[Media, Depends(get_media_dep)]
 LecturePipeline = Annotated[Pipeline, Depends(get_pipeline_dep)]
+Generator = Annotated[LectureGenerator, Depends(get_generator_dep)]

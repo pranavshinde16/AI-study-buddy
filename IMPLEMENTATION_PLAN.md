@@ -489,6 +489,8 @@ Every claim must come from the transcript: tell the model not to add outside fac
 ```
 **Checks:** the summary reads correctly against your lecture · the topic timestamps fall inside the lecture's duration · a second call is instant (cached) · rows appear in `llm_calls`.
 
+*Phase 5 changes (free tier):* Groq's free tier allows about 8K tokens per minute for `gpt-oss-120b`, and a request larger than that is refused, so single pass is used only up to `SUMMARY_SINGLE_PASS_MAX_TOKENS=3500` (not 12k), windows are capped at `SUMMARY_WINDOW_MAX_TOKENS=2500`, the client paces Groq requests (`GROQ_TOKENS_PER_MINUTE`) and sends `reasoning_effort=low`. The model returns **segment ids**, and the app looks up every timestamp from `transcript_segments`. If generation fails, the lecture returns to `transcribed` with an error, not `failed`, because the transcript is still usable. Design: [docs/summarization.md](docs/summarization.md).
+
 ### Phase 6: Quiz and flashcards
 ```
 Implement Phase 6: quiz generation (mcq/true_false/short_answer × easy/medium/hard) with JSON schema: each question has topic, answer, explanation, source_start. Check that MCQs have 4 unique options and the answer is among them; regenerate any invalid items.
@@ -584,7 +586,7 @@ Then draft the technical report as a Word document, using only real results.
 - [x] Phase 2: Scaffold & environment
 - [x] Phase 3: Backend core + database
 - [x] Phase 4: Upload & transcription
-- [ ] Phase 5: Summary & notes
+- [x] Phase 5: Summary & notes
 - [ ] Phase 6: Quiz & flashcards
 - [ ] Phase 7: RAG & chat
 - [ ] Phase 8: Frontend

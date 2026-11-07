@@ -4,12 +4,13 @@ from app.services.llm.providers import ChatResult, ProviderError
 
 
 class FakeProvider:
-    def __init__(self, name: str, script: list[ChatResult | ProviderError] | None = None) -> None:
+    def __init__(self, name: str, script: list[ChatResult | ProviderError] | None = None, responder=None) -> None:
         self.name = name
         self.script = list(script or [])
+        self.responder = responder
         self.calls: list[dict] = []
 
-    def chat(self, *, model, messages, json_mode, max_output_tokens, temperature) -> ChatResult:
+    def chat(self, *, model, messages, json_mode, max_output_tokens, temperature, reasoning_effort=None) -> ChatResult:
         self.calls.append(
             {
                 "model": model,
@@ -17,8 +18,14 @@ class FakeProvider:
                 "json_mode": json_mode,
                 "max_output_tokens": max_output_tokens,
                 "temperature": temperature,
+                "reasoning_effort": reasoning_effort,
             }
         )
+        if self.responder is not None:  # a function of the messages -> reply (see FakeLectureLLM)
+            item = self.responder(messages)
+            if isinstance(item, ProviderError):
+                raise item
+            return item
         if not self.script:
             raise AssertionError(f"FakeProvider '{self.name}' called more times than scripted")
         item = self.script.pop(0)
@@ -72,3 +79,70 @@ class FakeASRProvider:
 
 def asr_ok(*segments: tuple[float, float, str], language: str = "en", duration: float | None = None) -> ASRResult:
     return ASRResult(segments=[ASRSegment(s, e, t) for s, e, t in segments], language=language, duration_sec=duration)
+
+
+# ---------------------------------------------------------------------------- lecture LLM (Phase 5)
+
+import json  # noqa: E402
+import re  # noqa: E402
+
+_RANGE = re.compile(r"segments \[(\d+)\] to \[(\d+)\]")
+
+
+class FakeLectureLLM:
+    """Responder for FakeProvider: answers the topics / notes / summary prompts with valid JSON.
+
+    It recognises the prompt from the JSON Schema the client appends to the system message.
+    `topics`: splits the window's segment range into two topics (deliberately overlapping and
+    one id out of range, to exercise the app's clamping) plus one definition on the first id.
+    Set `fail[task] = ProviderError(...)` to make a task fail, or `invalid[task] = True` to
+    return JSON that does not match the schema.
+    """
+
+    def __init__(self) -> None:
+        self.tasks: list[str] = []
+        self.user_messages: list[str] = []
+        self.fail: dict[str, ProviderError] = {}
+        self.invalid: dict[str, bool] = {}
+
+    @staticmethod
+    def task_of(system: str) -> str:
+        if '"start_segment"' in system:
+            return "topics"
+        if '"notes_md"' in system:
+            return "notes"
+        if '"key_takeaways"' in system:
+            return "summary"
+        return "other"
+
+    def __call__(self, messages):
+        system, user = messages[0]["content"], messages[1]["content"]
+        task = self.task_of(system)
+        self.tasks.append(task)
+        self.user_messages.append(user)
+        if task in self.fail:
+            return self.fail[task]
+        if self.invalid.get(task):
+            return ok('{"unexpected": true}')
+        if task == "topics":
+            lo, hi = (int(x) for x in _RANGE.search(user).groups())
+            mid = (lo + hi) // 2
+            body = {
+                "topics": [
+                    {"title": f"Topic {lo}", "start_segment": lo, "end_segment": mid + 1, "key_points": [f"point {lo}"]},
+                    {"title": f"Topic {mid}", "start_segment": mid, "end_segment": hi + 50, "key_points": [f"point {mid}"]},
+                ],
+                "definitions": [
+                    {"term": f"Term {lo}", "definition": "as explained (not stated in lecture)", "segment_id": lo},
+                    {"term": "Ghost", "definition": "id outside the window", "segment_id": hi + 999},
+                ],
+            }
+        elif task == "notes":
+            topic = re.search(r"Topic: (.*)", user).group(1)
+            body = {"notes_md": f"- **{topic}** notes from the transcript"}
+        elif task == "summary":
+            body = {"summary": "The lecture covers the topics.", "key_takeaways": ["Takeaway one", "Takeaway two"],
+                    "revision_notes_md": "- revise **this**"}
+        else:
+            body = {}
+        return ok(json.dumps(body), model_version="openai/gpt-oss-120b", inp=300, out=120)

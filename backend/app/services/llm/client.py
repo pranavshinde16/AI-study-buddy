@@ -36,12 +36,19 @@ from app.services.llm.errors import (
     ProviderNotConfiguredError,
     RateLimitedError,
 )
+from app.services.llm.calllog import save_call
 from app.services.llm.pricing import PricingTable
 from app.services.llm.prompts import PromptRegistry, PromptTemplate
 from app.services.llm.providers import ChatProvider, ChatResult, ProviderError, build_provider
+from app.services.llm.ratelimit import Reservation, TokenRateLimiter, estimate_tokens
 from app.services.llm.retry import backoff_delay
 
 log = structlog.get_logger(__name__)
+
+# Providers whose models accept `reasoning_effort` (gpt-oss on Groq, gpt-5 on OpenAI). Not Ollama.
+REASONING_PROVIDERS = frozenset({"groq", "openai"})
+# Output tokens reserved for pacing before the real count is known.
+OUTPUT_RESERVE_TOKENS = 1000
 
 _FENCE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.DOTALL)
 
@@ -93,6 +100,7 @@ class LLMClient:
         pricing: PricingTable,
         providers: dict[str, ChatProvider] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        rate_limiters: dict[str, TokenRateLimiter] | None = None,
     ) -> None:
         self.settings = settings
         self._session_factory = session_factory
@@ -100,6 +108,12 @@ class LLMClient:
         self.pricing = pricing
         self._providers: dict[str, ChatProvider] = dict(providers or {})
         self._sleep = sleep
+        # Per-provider tokens-per-minute pacing. Only Groq's free tier needs it by default.
+        self._limiters: dict[str, TokenRateLimiter] = (
+            dict(rate_limiters)
+            if rate_limiters is not None
+            else {"groq": TokenRateLimiter(settings.groq_tokens_per_minute, sleep=sleep)}
+        )
 
     # ------------------------------------------------------------------ public API
 
@@ -134,6 +148,7 @@ class LLMClient:
             json_mode=schema is not None,
             max_output_tokens=max_output_tokens or prompt.max_output_tokens or self.settings.llm_max_output_tokens,
             temperature=temperature if temperature is not None else prompt.temperature,
+            reasoning_effort=(self.settings.llm_reasoning_effort or None) if provider_name in REASONING_PROVIDERS else None,
         )
         try:
             chat_provider = self._get_provider(provider_name)
@@ -221,6 +236,7 @@ class LLMClient:
         retries = self.settings.llm_max_retries
         for retry_index in range(retries + 1):
             ctx.attempt += 1
+            reservation = self._pace(ctx, messages)
             start = time.perf_counter()
             try:
                 chat = chat_provider.chat(
@@ -229,8 +245,10 @@ class LLMClient:
                     json_mode=ctx.json_mode,
                     max_output_tokens=ctx.max_output_tokens,
                     temperature=ctx.temperature,
+                    reasoning_effort=ctx.reasoning_effort,
                 )
             except ProviderError as exc:
+                self._settle(ctx, reservation, None)
                 latency = (time.perf_counter() - start) * 1000
                 status = "rate_limited" if exc.kind == "rate_limited" else "unavailable" if exc.retryable else "error"
                 self._log_call(ctx, attempt=ctx.attempt, messages=messages, status=status, error=exc, latency_ms=latency)
@@ -250,6 +268,8 @@ class LLMClient:
                 raise self._to_app_error(exc, ctx) from exc
 
             latency = (time.perf_counter() - start) * 1000
+            if chat.input_tokens is not None or chat.output_tokens is not None:
+                self._settle(ctx, reservation, (chat.input_tokens or 0) + (chat.output_tokens or 0))
             cost = self.pricing.cost(ctx.provider, ctx.model, chat.input_tokens, chat.output_tokens)
             status = "ok"
             err_msg = None
@@ -275,6 +295,23 @@ class LLMClient:
                 result.call_ids.append(call_id)
             return chat
         raise AssertionError("unreachable")  # pragma: no cover
+
+    def _pace(self, ctx: "_CallContext", messages: list[dict[str, str]]) -> Reservation | None:
+        """Wait if this request would push the provider over its tokens-per-minute limit."""
+        limiter = self._limiters.get(ctx.provider)
+        if limiter is None:
+            return None
+        estimate = estimate_tokens(messages) + min(ctx.max_output_tokens, OUTPUT_RESERVE_TOKENS)
+        reservation, waited = limiter.acquire(estimate)
+        if waited > 0:
+            log.info("llm_rate_wait", provider=ctx.provider, model=ctx.model, task=ctx.task,
+                     waited_sec=round(waited, 2), estimated_tokens=estimate)
+        return reservation
+
+    def _settle(self, ctx: "_CallContext", reservation: Reservation | None, actual: int | None) -> None:
+        limiter = self._limiters.get(ctx.provider)
+        if limiter is not None:
+            limiter.settle(reservation, actual)
 
     @staticmethod
     def _to_app_error(exc: ProviderError, ctx: "_CallContext") -> LLMError:
@@ -346,15 +383,8 @@ class LLMClient:
             output_tokens=row.output_tokens,
             cost_usd=cost_usd,
         )
-        # Logging must never break the user's request.
-        try:
-            with self._session_factory() as session:
-                session.add(row)
-                session.commit()
-                return row.id
-        except Exception as exc:  # noqa: BLE001
-            log.warning("llm_call_log_failed", error_type=type(exc).__name__)
-            return None
+        # Logging must never break the user's request (see calllog.save_call).
+        return save_call(self._session_factory, row)
 
 
 @dataclass
@@ -368,6 +398,7 @@ class _CallContext:
     json_mode: bool
     max_output_tokens: int
     temperature: float | None
+    reasoning_effort: str | None = None
     attempt: int = 0
 
 

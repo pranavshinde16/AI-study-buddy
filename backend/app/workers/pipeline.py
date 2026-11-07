@@ -1,8 +1,11 @@
 """Background lecture pipeline (IMPLEMENTATION_PLAN §5.3), started by the upload endpoint.
 
-Phase 4 stages:
-    uploaded → extracting_audio → transcribing → transcribed   (or → failed)
-Later phases continue from `transcribed` to indexing → generating → ready.
+Stages:
+    uploaded → extracting_audio → transcribing → transcribed → generating → ready
+    (failed if the audio can't be transcribed; a summary failure returns to `transcribed`
+    with an error message, because the transcript itself is fine — see services/summaries.py)
+Phase 7 adds `indexing` between transcribed and generating. With SUMMARY_AUTO=false the
+pipeline stops at `transcribed`.
 
 It runs in FastAPI's BackgroundTasks thread pool with its own DB session, commits after every
 status change so `GET /lectures/{id}/status` shows live progress, and writes one
@@ -26,14 +29,16 @@ from app.models.lecture import Lecture, LectureStatus, TranscriptSegment
 from app.models.llmops import PipelineRun
 from app.services.asr.client import ASRClient
 from app.services.asr.providers import ASRSegment
+from app.services.generation.summary import LectureGenerator
 from app.services.lectures import IN_PROGRESS
 from app.services.media import AudioChunk, Media
 from app.services.storage import StorageService
+from app.services.summaries import generate_and_store, mark_generation_interrupted
 
 log = structlog.get_logger(__name__)
 
-# Progress % shown while each stage runs.
-P_EXTRACT, P_TRANSCRIBE_START, P_TRANSCRIBE_END = 5, 10, 95
+# Progress % shown while each stage runs (generation uses 75-99, see services/summaries.py).
+P_EXTRACT, P_TRANSCRIBE_START, P_TRANSCRIBE_END = 5, 10, 72
 
 
 class LectureGone(Exception):
@@ -70,12 +75,14 @@ class Pipeline:
         storage: StorageService,
         media: Media,
         asr: ASRClient,
+        generator: LectureGenerator | None = None,
     ) -> None:
         self.settings = settings
         self._session_factory = session_factory
         self.storage = storage
         self.media = media
         self.asr = asr
+        self.generator = generator
 
     # ------------------------------------------------------------------ entry point
 
@@ -146,6 +153,10 @@ class Pipeline:
         )
         lecture.language = (language or "")[:16] or None
         self._set(db, lecture, LectureStatus.TRANSCRIBED, 100, f"{len(merged)} segments; ready for indexing")
+
+        # 4. summary + topics + notes (Phase 5). Failures are recorded on the lecture, not raised.
+        if self.settings.summary_auto and self.generator is not None:
+            generate_and_store(db, lecture_id, self.generator, raise_errors=False)
 
     # ------------------------------------------------------------------ helpers
 
@@ -230,8 +241,10 @@ class _StageTimer:
 
 
 def mark_interrupted(session_factory: sessionmaker[Session] | Callable[[], Session]) -> int:
-    """On startup: lectures left mid-pipeline by a server restart can't resume, so mark them failed."""
+    """On startup: lectures left mid-pipeline by a server restart can't resume, so mark them failed.
+    One interrupted while generating its summary goes back to `transcribed` (its transcript is fine)."""
     with session_factory() as db:
+        regenerate_later = mark_generation_interrupted(db)
         ids = list(db.scalars(select(Lecture.id).where(Lecture.status.in_([str(s) for s in IN_PROGRESS]))))
         if ids:
             db.execute(
@@ -244,7 +257,7 @@ def mark_interrupted(session_factory: sessionmaker[Session] | Callable[[], Sessi
                 )
             )
             db.commit()
-        return len(ids)
+        return len(ids) + regenerate_later
 
 
 @lru_cache
@@ -256,5 +269,10 @@ def get_pipeline() -> Pipeline:
     from app.services.media import media_from_settings
     from app.services.storage import storage_from_settings
 
+    from app.services.generation.summary import get_lecture_generator
+
     s = get_settings()
-    return Pipeline(s, get_session_factory(), storage_from_settings(s), media_from_settings(s), get_asr_client())
+    return Pipeline(
+        s, get_session_factory(), storage_from_settings(s), media_from_settings(s), get_asr_client(),
+        get_lecture_generator(),
+    )

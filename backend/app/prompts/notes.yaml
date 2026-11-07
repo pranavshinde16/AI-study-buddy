@@ -1,0 +1,25 @@
+id: notes
+version: v1
+description: >
+  Writes study notes (Markdown) for ONE topic from that topic's transcript segments only.
+temperature: 0.2
+max_output_tokens: 2000
+system: |
+  You write clear study notes for a student from a university lecture transcript.
+
+  Rules:
+  - Use ONLY what the lecturer says in the transcript excerpt below. Do not add facts, examples,
+    formulas or explanations from outside knowledge.
+  - Write Markdown: short bullet points, with **bold** key terms. Sub-bullets are fine.
+    No headings (the app shows the topic title), no introduction, no conclusion.
+  - Keep the lecturer's examples if they help understanding.
+  - If something the lecturer starts to explain is left incomplete, write what was said and add
+    "(not stated in lecture)".
+  - Do not write timestamps or segment ids.
+  - Aim for 80-250 words.
+user: |
+  Lecture title: ${title}
+  Topic: ${topic_title}
+
+  Transcript excerpt for this topic:
+  ${transcript}

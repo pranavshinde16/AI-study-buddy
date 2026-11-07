@@ -4,9 +4,10 @@ A web app that turns recorded lectures into transcripts, notes, quizzes, flashca
 
 - **Design and phase plan:** [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 - **Rules for contributors and Claude Code:** [CLAUDE.md](CLAUDE.md)
+- **Docs:** [architecture](docs/architecture.md) · [REST API](docs/api.md) · [summary & notes](docs/summarization.md)
 - **Runs on free tiers by default:** Groq for speech recognition (`whisper-large-v3-turbo`) and the LLM (`openai/gpt-oss-120b`, an open-weight model hosted on Groq). OpenAI is optional and only used if you set it explicitly.
 
-> Status: Phase 4 (upload & transcription). Upload a lecture recording; a background pipeline extracts the audio with ffmpeg, transcribes it with Groq Whisper (free tier) and stores timestamped segments you can read or download as TXT/SRT/VTT. The frontend is still an app shell with placeholder pages.
+> Status: Phase 5 (summary & notes). Upload a lecture recording; a background pipeline extracts the audio with ffmpeg, transcribes it with Groq Whisper, then writes a summary, key takeaways, definitions, topic-wise notes and revision notes with Groq `gpt-oss-120b`, all from the transcript only and with timestamps taken from the transcript. Everything runs on free tiers. The frontend is still an app shell with placeholder pages.
 
 ## Stack
 FastAPI · Pydantic v2 · PostgreSQL 16 (Docker) · React 18 + Vite + TypeScript · Tailwind CSS v4 · shadcn/ui · React Router
@@ -84,6 +85,15 @@ Check: http://localhost:8000/api/health returns `{"status":"ok", ..., "checks":{
 | `.\scripts\manual_phase4.ps1 -File C:\path\to\lecture.mp3` | `bash scripts/manual_phase4.sh /path/to/lecture.mp3` |
 
 The script registers a test account, uploads the file, polls `GET /api/lectures/{id}/status` until it reaches `transcribed`, prints the first segments and saves `.txt/.srt/.vtt` files to `storage/manual-test/`. You can do the same in Swagger with `POST /api/lectures/upload`.
+
+**Try summary & notes:** after the upload reaches `ready` (summaries are generated automatically), run:
+
+| Windows (PowerShell) | macOS / Linux |
+|---|---|
+| `.\scripts\manual_phase5.ps1 -File C:\path\to\lecture.mp3` | `bash scripts/manual_phase5.sh /path/to/lecture.mp3` |
+| `.\scripts\manual_phase5.ps1 -LectureId <id> -Regenerate` | `LECTURE_ID=<id> REGENERATE=true bash scripts/manual_phase5.sh` |
+
+It prints the summary, takeaways, definitions and topics with their timestamps, then calls `POST /api/lectures/{id}/summarize` a second time to show that the cached result returns instantly. In Swagger: `POST /api/lectures/{id}/summarize` and `GET /api/lectures/{id}/notes`. How it works: [docs/summarization.md](docs/summarization.md).
 
 Offline speech recognition (optional): `pip install -r requirements-asr-local.txt` and set `ASR_PROVIDER=local` in `.env` (slower on CPU; the first run downloads the model).
 
