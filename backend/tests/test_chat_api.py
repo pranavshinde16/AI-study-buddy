@@ -198,3 +198,21 @@ def test_messages_store_sources(client, auth_headers, make_ready_lecture, db, en
     client.post(f"/api/lectures/{lid}/{endpoint}", headers=auth_headers, json={key: Q})
     stored = list(db.scalars(select(ChatMessage)))
     assert (len(stored) == 2) is (endpoint == "chat")  # /ask is not stored as a chat
+
+
+def test_history_includes_refusal_reason(client, auth_headers, make_ready_lecture, fake_llm):
+    lid = make_ready_lecture()
+    first = client.post(f"/api/lectures/{lid}/chat", headers=auth_headers, json={"message": Q}).json()
+    sid = first["session_id"]
+    fake_llm.rag_answerable = False
+    refused = client.post(f"/api/lectures/{lid}/chat", headers=auth_headers,
+                          json={"message": Q + " again", "session_id": sid}).json()
+    assert refused["meta"]["refusal_reason"] == "not_in_chunks"
+
+    msgs = client.get(f"/api/lectures/{lid}/chat/{sid}", headers=auth_headers).json()["messages"]
+    assert [(m["role"], m["answerable"], m["refusal_reason"]) for m in msgs] == [
+        ("user", None, None),
+        ("assistant", True, None),
+        ("user", None, None),
+        ("assistant", False, "not_in_chunks"),
+    ]

@@ -3,12 +3,21 @@
  * Query keys live in `keys` so mutations can update or invalidate the right cache entries.
  */
 import { useSyncExternalStore } from "react";
-import { useMutation, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
 
 import { getToken, setToken, clearToken, subscribeToken } from "./auth";
 import { resetUnauthorizedGuard, type ApiError } from "./client";
 import * as ep from "./endpoints";
-import type { LectureStatus, LectureStatusOut, LoginRequest, RegisterRequest } from "./types";
+import type {
+  ChatRequest,
+  GenerateQuizRequest,
+  LectureOut,
+  LectureStatus,
+  LectureStatusOut,
+  LoginRequest,
+  RegisterRequest,
+  SubmitQuizRequest,
+} from "./types";
 
 export const keys = {
   me: ["me"] as const,
@@ -17,6 +26,14 @@ export const keys = {
   status: (id: string) => ["lecture", id, "status"] as const,
   transcript: (id: string) => ["lecture", id, "transcript"] as const,
   summary: (id: string) => ["lecture", id, "summary"] as const,
+  notes: (id: string) => ["lecture", id, "notes"] as const,
+  quizzes: (id: string) => ["lecture", id, "quizzes"] as const,
+  quiz: (quizId: string) => ["quiz", quizId] as const,
+  deck: (id: string, dueOnly: boolean) => ["lecture", id, "deck", dueOnly ? "due" : "all"] as const,
+  deckAll: (id: string) => ["lecture", id, "deck"] as const,
+  chatSessions: (id: string) => ["lecture", id, "chat"] as const,
+  chatHistory: (id: string, sessionId: string) => ["lecture", id, "chat", sessionId] as const,
+  models: ["models"] as const,
 };
 
 /** Statuses where the pipeline is still moving, so /status is worth polling. */
@@ -150,4 +167,120 @@ export function useSummarize(id: string) {
       void qc.invalidateQueries({ queryKey: keys.lectures });
     },
   });
+}
+
+/** Topic-wise notes (topic titles feed the quiz setup). 409 NOTES_NOT_GENERATED until /summarize ran. */
+export function useNotes(id: string, enabled = true) {
+  return useQuery({ queryKey: keys.notes(id), queryFn: () => ep.getNotes(id), enabled, staleTime: 5 * 60_000 });
+}
+
+// ------------------------------------------------------------------ quizzes
+export function useQuizzes(id: string) {
+  return useQuery({ queryKey: keys.quizzes(id), queryFn: () => ep.listQuizzes(id) });
+}
+
+export function useGenerateQuiz(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: GenerateQuizRequest) => ep.generateQuiz(id, body),
+    onSuccess: (quiz) => {
+      qc.setQueryData(keys.quiz(quiz.quiz_id), quiz);
+      void qc.invalidateQueries({ queryKey: keys.quizzes(id) });
+    },
+  });
+}
+
+/** Loads an earlier quiz (without answers) to take it again. */
+export function useLoadQuiz() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (quizId: string) => qc.fetchQuery({ queryKey: keys.quiz(quizId), queryFn: () => ep.getQuiz(quizId) }),
+  });
+}
+
+export function useSubmitQuiz(lectureId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ quizId, body }: { quizId: string; body: SubmitQuizRequest }) => ep.submitQuiz(quizId, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.quizzes(lectureId) });
+    },
+  });
+}
+
+// ------------------------------------------------------------------ flashcards
+export function useDeck(id: string, dueOnly: boolean, enabled = true) {
+  return useQuery({ queryKey: keys.deck(id, dueOnly), queryFn: () => ep.getDeck(id, dueOnly), enabled });
+}
+
+export function useGenerateDeck(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (regenerate: boolean) => ep.generateDeck(id, regenerate),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.deckAll(id) });
+    },
+  });
+}
+
+export function useReviewCard(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cardId, knew }: { cardId: string; knew: boolean }) => ep.reviewCard(cardId, knew),
+    // Mark decks stale without refetching: the review session keeps its own queue until it ends.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.deckAll(id), refetchType: "none" });
+    },
+  });
+}
+
+// ------------------------------------------------------------------ ask / chat
+export function useModels() {
+  return useQuery({ queryKey: keys.models, queryFn: ep.listModels, staleTime: 10 * 60_000 });
+}
+
+export function useChatSessions(id: string) {
+  return useQuery({ queryKey: keys.chatSessions(id), queryFn: () => ep.listChatSessions(id) });
+}
+
+export function useChatHistory(id: string, sessionId: string | null) {
+  return useQuery({
+    queryKey: keys.chatHistory(id, sessionId ?? ""),
+    queryFn: () => ep.getChatHistory(id, sessionId!),
+    enabled: !!sessionId,
+    staleTime: Infinity,
+  });
+}
+
+export function useSendChat(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ChatRequest) => ep.sendChat(id, body),
+    // The Ask page shows MODEL_UNAVAILABLE and rate limits inline, with its own wording.
+    meta: { silentError: true },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.chatSessions(id), exact: true });
+    },
+  });
+}
+
+// ------------------------------------------------------------------ dashboard / analytics
+/**
+ * Quiz lists and decks for every lecture, built from existing endpoints only
+ * (Phase 9 adds /progress and /dashboard/overview). `allCards` = full decks instead of due cards.
+ */
+export function useLectureStats(lectures: LectureOut[] | undefined, allCards = false) {
+  const list = lectures ?? [];
+  const quizzes = useQueries({
+    queries: list.map((l) => ({ queryKey: keys.quizzes(l.id), queryFn: () => ep.listQuizzes(l.id) })),
+  });
+  const decks = useQueries({
+    queries: list.map((l) => ({ queryKey: keys.deck(l.id, !allCards), queryFn: () => ep.getDeck(l.id, !allCards) })),
+  });
+  return {
+    quizzes,
+    decks,
+    isPending: quizzes.some((q) => q.isPending) || decks.some((d) => d.isPending),
+    isError: quizzes.some((q) => q.isError) || decks.some((d) => d.isError),
+  };
 }

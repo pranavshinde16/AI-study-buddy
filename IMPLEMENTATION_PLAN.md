@@ -608,7 +608,7 @@ Then draft the technical report as a Word document, using only real results.
 - [x] Phase 5: Summary & notes
 - [x] Phase 6: Quiz & flashcards
 - [x] Phase 7: RAG & chat
-- [ ] Phase 8: Frontend
+- [x] Phase 8: Frontend
 - [ ] Phase 9: Learning features
 - [ ] Phase 10: Fine-tuning
 - [ ] Phase 11: LLMOps & eval

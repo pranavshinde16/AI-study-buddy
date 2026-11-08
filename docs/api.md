@@ -2,7 +2,7 @@
 
 Base URL: `http://localhost:8000/api` · interactive docs: http://localhost:8000/docs (Swagger UI) · schema: `/openapi.json`.
 
-This page covers the endpoints implemented through **Phase 7**, plus `GET /lectures/{id}/media` (added in Phase 8 for the transcript player). The JSON below shows **shapes** with placeholder values, not real outputs.
+This page covers the endpoints implemented through **Phase 7**, plus two Phase 8 additions: `GET /lectures/{id}/media` (for the transcript player) and `refusal_reason` in chat history. The JSON below shows **shapes** with placeholder values, not real outputs.
 
 ## Conventions
 
@@ -259,7 +259,7 @@ How retrieval, the threshold, refusals and generators work: [rag.md](rag.md). Th
 ```
 → the `/ask` shape plus `session_id`, `message_id`, `question` and `rewritten_question` (the standalone question used for retrieval; `null` on the first turn). Send `session_id` back to continue. Errors are as for `/ask`, plus `404 CHAT_SESSION_NOT_FOUND`.
 
-**GET `/lectures/{id}/chat`** → `[{"session_id", "title", "created_at", "messages"}]`. **GET `/lectures/{id}/chat/{session_id}`** → `{"session_id", "lecture_id", "title", "created_at", "messages": [{"id", "role", "content", "sources", "answerable", "model", "created_at"}]}`.
+**GET `/lectures/{id}/chat`** → `[{"session_id", "title", "created_at", "messages"}]`. **GET `/lectures/{id}/chat/{session_id}`** → `{"session_id", "lecture_id", "title", "created_at", "messages": [{"id", "role", "content", "sources", "answerable", "refusal_reason", "model", "created_at"}]}`. `refusal_reason` (added in Phase 8) is `below_threshold` or `not_in_chunks` on a refused assistant message, read from `qa_logs`, and `null` otherwise, so a reopened chat can show why a question was refused.
 
 **GET `/models`** → `[{"name": "cloud", "provider": "groq", "model": "openai/gpt-oss-120b", "description": "…"}, …]`.
 

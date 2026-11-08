@@ -175,9 +175,16 @@ def list_sessions(db: Session, user: User, lecture_id: uuid.UUID) -> list[dict[s
 def get_history(db: Session, user: User, lecture_id: uuid.UUID, session_id: uuid.UUID) -> dict[str, Any]:
     get_lecture(db, user, lecture_id)
     s = _session(db, user, lecture_id, session_id)
+    messages = messages_of(db, s.id)
+    # The refusal reason lives in qa_logs (one row per answered question, linked to the reply).
+    reply_ids = [m.id for m in messages if m.role == "assistant"]
+    reasons = dict(
+        db.execute(select(QALog.message_id, QALog.refusal_reason).where(QALog.message_id.in_(reply_ids))).all()
+    ) if reply_ids else {}
     return {
         "session_id": s.id, "lecture_id": lecture_id, "title": s.title, "created_at": s.created_at,
         "messages": [{"id": m.id, "role": m.role, "content": m.content, "sources": m.sources_json or [],
-                      "answerable": m.answerable, "model": m.model, "created_at": m.created_at}
-                     for m in messages_of(db, s.id)],
+                      "answerable": m.answerable, "refusal_reason": reasons.get(m.id), "model": m.model,
+                      "created_at": m.created_at}
+                     for m in messages],
     }

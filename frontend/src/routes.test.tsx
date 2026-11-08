@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { mockApi } from "@/test/mockApi";
@@ -19,12 +19,18 @@ describe("app shell routes", () => {
   });
 
   it("renders the sidebar, the user and recent lectures at /", async () => {
-    mockApi({ "GET /auth/me": { data: fakeUser }, "GET /lectures": { data: [lecture] } });
+    mockApi({
+      "GET /auth/me": { data: fakeUser },
+      "GET /lectures": { data: [lecture] },
+      "GET /lectures/abc/quizzes": { data: [] },
+      "GET /lectures/abc/flashcards": { data: { lecture_id: "abc", total: 0, due: 0, cards: [] } },
+    });
     renderApp("/");
     const nav = screen.getByRole("navigation", { name: "Main" });
     for (const label of ["Dashboard", "Upload lecture", "Analytics", "LLMOps"]) expect(nav).toHaveTextContent(label);
-    expect(screen.getByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: "Intro to Serverless" })).toHaveAttribute("href", "/lectures/abc");
+    expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeInTheDocument();
+    const recent = await screen.findByRole("list", { name: "Recent lectures" });
+    expect(within(recent).getByRole("link", { name: "Intro to Serverless" })).toHaveAttribute("href", "/lectures/abc");
     expect(await screen.findByText("Ada")).toBeInTheDocument();
   });
 

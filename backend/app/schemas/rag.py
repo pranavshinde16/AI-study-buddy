@@ -83,6 +83,9 @@ class ChatMessageOut(BaseModel):
     content: str
     sources: list[SourceOut]
     answerable: bool | None
+    refusal_reason: str | None = Field(
+        None, description="Assistant refusals: below_threshold | not_in_chunks (from qa_logs); null otherwise"
+    )
     model: str | None
     created_at: datetime
 

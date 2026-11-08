@@ -6,6 +6,19 @@ import type { AxiosProgressEvent } from "axios";
 
 import { api } from "./client";
 import type {
+  AskResponse,
+  ChatHistoryOut,
+  ChatRequest,
+  ChatResponse,
+  ChatSessionOut,
+  DeckOut,
+  FlashcardOut,
+  GenerateQuizRequest,
+  GeneratorOut,
+  QuizOut,
+  QuizSummaryOut,
+  SubmitQuizRequest,
+  SubmitQuizResponse,
   LectureOut,
   LectureStatusOut,
   LoginRequest,
@@ -105,4 +118,58 @@ export async function summarize(id: string, regenerate = false): Promise<Summary
 
 export async function getNotes(id: string): Promise<NotesResponse> {
   return (await api.get<NotesResponse>(`/lectures/${id}/notes`)).data;
+}
+
+// ------------------------------------------------------------------ quizzes
+/** Generates a new quiz (LLM call; answers are hidden until submit). */
+export async function generateQuiz(id: string, body: GenerateQuizRequest): Promise<QuizOut> {
+  return (await api.post<QuizOut>(`/lectures/${id}/generate-quiz`, body)).data;
+}
+
+export async function listQuizzes(id: string): Promise<QuizSummaryOut[]> {
+  return (await api.get<QuizSummaryOut[]>(`/lectures/${id}/quizzes`)).data;
+}
+
+export async function getQuiz(quizId: string): Promise<QuizOut> {
+  return (await api.get<QuizOut>(`/quizzes/${quizId}`)).data;
+}
+
+/** Grades the answers (short answers use the LLM judge, so this can be slow on the free tier). */
+export async function submitQuiz(quizId: string, body: SubmitQuizRequest): Promise<SubmitQuizResponse> {
+  return (await api.post<SubmitQuizResponse>(`/quizzes/${quizId}/submit`, body)).data;
+}
+
+// ------------------------------------------------------------------ flashcards
+/** Returns the stored deck (cached) or generates one; `regenerate` replaces it and resets progress. */
+export async function generateDeck(id: string, regenerate = false): Promise<DeckOut> {
+  return (await api.post<DeckOut>(`/lectures/${id}/flashcards`, { regenerate })).data;
+}
+
+export async function getDeck(id: string, dueOnly = false): Promise<DeckOut> {
+  return (await api.get<DeckOut>(`/lectures/${id}/flashcards`, { params: { due: dueOnly } })).data;
+}
+
+export async function reviewCard(cardId: string, knew: boolean): Promise<FlashcardOut> {
+  return (await api.post<FlashcardOut>(`/flashcards/${cardId}/review`, { knew })).data;
+}
+
+// ------------------------------------------------------------------ ask / chat
+export async function ask(id: string, question: string, model: string): Promise<AskResponse> {
+  return (await api.post<AskResponse>(`/lectures/${id}/ask`, { question, model })).data;
+}
+
+export async function sendChat(id: string, body: ChatRequest): Promise<ChatResponse> {
+  return (await api.post<ChatResponse>(`/lectures/${id}/chat`, body)).data;
+}
+
+export async function listChatSessions(id: string): Promise<ChatSessionOut[]> {
+  return (await api.get<ChatSessionOut[]>(`/lectures/${id}/chat`)).data;
+}
+
+export async function getChatHistory(id: string, sessionId: string): Promise<ChatHistoryOut> {
+  return (await api.get<ChatHistoryOut>(`/lectures/${id}/chat/${sessionId}`)).data;
+}
+
+export async function listModels(): Promise<GeneratorOut[]> {
+  return (await api.get<GeneratorOut[]>("/models")).data;
 }
