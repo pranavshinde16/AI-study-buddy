@@ -1,0 +1,18 @@
+# Ollama model for the BASE Qwen3-1.7B, with the same chat template and settings as the fine-tuned
+# model, so "base vs finetuned" differs only in the weights (both with thinking OFF).
+#
+#   ollama pull qwen3:1.7b
+#   python finetune/set_chat_template.py --from-ollama qwen3:1.7b finetune/study-buddy-qwen-base-q4_k_m.gguf
+#   ollama create study-buddy-qwen-base -f finetune/Modelfile.base        (run from the repo root)
+#   BASE_SLM_MODEL_TAG=study-buddy-qwen-base in your .env
+#
+# The GGUF is qwen3:1.7b's own file with only its chat template replaced by prompts.NO_THINK_CHAT_TEMPLATE.
+# (Plain `qwen3:1.7b` also works in the app, but it thinks before answering, which is slower and not
+# what the fine-tuned model was compared with.) No TEMPLATE here: see the note in Modelfile.
+FROM ./study-buddy-qwen-base-q4_k_m.gguf
+
+PARAMETER temperature 0.1
+PARAMETER top_p 0.9
+PARAMETER num_ctx 4096
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|im_start|>"

@@ -1,0 +1,21 @@
+# Ollama model for the SciQ fine-tuned Qwen3-1.7B (the app's "finetuned" generator).
+#
+#   1. Put the GGUF exported by the notebook next to this file:
+#        finetune/study-buddy-qwen-q4_k_m.gguf            (gitignored: *.gguf)
+#   2. ollama create study-buddy-qwen -f finetune/Modelfile        (run from the repo root)
+#   3. FINETUNED_MODEL_TAG=study-buddy-qwen in your .env (already the default)
+#
+# Thinking OFF: the notebook embeds prompts.NO_THINK_CHAT_TEMPLATE in the GGUF, so every answer starts
+# after an empty <think></think> block, exactly like the training data. There is deliberately no
+# TEMPLATE here: Ollama 0.40 renders Qwen3 with the GGUF's own template ("template source:
+# gguf_chat_template" in `ollama show`) and ignores a Modelfile TEMPLATE. Check with:
+#   ollama show study-buddy-qwen --template
+FROM ./study-buddy-qwen-q4_k_m.gguf
+
+# Low temperature: grounded answers, not creative ones (the app also sends 0.1 for rag_answer).
+PARAMETER temperature 0.1
+PARAMETER top_p 0.9
+# The app's RAG prompt with 5 transcript chunks needs more than the 1,024 training tokens.
+PARAMETER num_ctx 4096
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|im_start|>"

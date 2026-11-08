@@ -1,0 +1,91 @@
+{
+  "dataset": "allenai/sciq",
+  "dataset_revision": "2c94ad3e1aafab77146f384e23536f97a4849815",
+  "tokenizer": "unsloth/Qwen3-1.7B",
+  "tokenizer_revision": "6262b50d6c1f8ee5e4ac750d710c33603bfc2a0c",
+  "seed": 3407,
+  "max_seq_len": 1024,
+  "enable_thinking": false,
+  "prompt_versions": {
+    "rag_answer": "rag_answer@v1",
+    "mcq_gen": "mcq_gen@v1"
+  },
+  "library_versions": {
+    "datasets": "4.8.5",
+    "transformers": "5.17.0"
+  },
+  "splits": {
+    "train": {
+      "rows": 11679,
+      "dropped_empty_support": 1198,
+      "usable_rows": 10481,
+      "file": "train.jsonl",
+      "examples": 3000,
+      "by_task": {
+        "gqa": 2250,
+        "refusal": 450,
+        "mcq": 300
+      },
+      "events": {
+        "dropped_too_long_gqa": 4,
+        "dropped_too_long_refusal": 2,
+        "gqa_without_support_sentence": 213,
+        "reduced_excerpts_gqa": 99,
+        "reduced_excerpts_refusal": 10
+      },
+      "tokens": {
+        "max": 1024,
+        "mean": 626.0,
+        "p50": 619,
+        "p95": 926
+      }
+    },
+    "validation": {
+      "rows": 1000,
+      "dropped_empty_support": 113,
+      "usable_rows": 887,
+      "file": "val.jsonl",
+      "examples": 300,
+      "by_task": {
+        "gqa": 225,
+        "mcq": 30,
+        "refusal": 45
+      },
+      "events": {
+        "gqa_without_support_sentence": 24,
+        "reduced_excerpts_gqa": 4,
+        "reduced_excerpts_refusal": 2
+      },
+      "tokens": {
+        "max": 1011,
+        "mean": 629.6,
+        "p50": 630,
+        "p95": 915
+      }
+    },
+    "test": {
+      "rows": 1000,
+      "dropped_empty_support": 116,
+      "usable_rows": 884,
+      "file": "test_eval.jsonl",
+      "examples": 500,
+      "by_task": {
+        "gqa": 375,
+        "refusal": 75,
+        "mcq": 50
+      },
+      "events": {
+        "dropped_too_long_gqa": 1,
+        "gqa_without_support_sentence": 29,
+        "reduced_excerpts_gqa": 15,
+        "reduced_excerpts_refusal": 3
+      },
+      "tokens": {
+        "max": 1018,
+        "mean": 634.5,
+        "p50": 628,
+        "p95": 924
+      }
+    }
+  }
+}

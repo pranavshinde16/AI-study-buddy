@@ -1,0 +1,26 @@
+{
+  "created_at": "2026-11-08T12:40:18+00:00",
+  "status": "reconstructed (approximate), not measured by the notebook",
+  "why": "The original session's results/training.json was overwritten when step 6 was run again in a new session: Trainer resumed from the final checkpoint-188, trained 0 steps and recorded train_runtime 0.0073 s. The original session's own measurement is in no file. The notebook now logs every session to results/training_sessions.jsonl, so this cannot happen again.",
+  "sources": {
+    "progress_bar_screenshot": {
+      "text": "[180/188 28:10 < 01:15, 0.11 it/s]",
+      "from": "user's screenshot of the original step-6 run (2026-11-08, 02:47 local time)",
+      "elapsed_at_step_180_s": 1690,
+      "eta_remaining_s": 75,
+      "file": "docs/screenshots/training_progress.png"
+    },
+    "training_json_log_history": {
+      "eval_runtime_s_at_step_188": 46.663,
+      "eval_runtime_s_in_loop_total": 373.2,
+      "n_in_loop_evals": 8,
+      "note": "same log_history as checkpoint-188/trainer_state.json (loaded from it on resume); transformers' TrainerState stores no wall-clock timestamps, only eval_runtime per evaluation"
+    },
+    "drive_checkpoint_timestamps": null
+  },
+  "method": "elapsed at step 180 + the bar's remaining-time estimate for steps 181-188 + the step-188 evaluation (logged eval_runtime); checkpoint saving is not included",
+  "lower_bound_s": 1736.7,
+  "estimate_s": 1811.7,
+  "estimate_min": 30.2,
+  "includes_in_loop_evaluations": true
+}

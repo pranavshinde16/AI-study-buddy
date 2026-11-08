@@ -1,0 +1,56 @@
+{
+  "created_at": "2026-11-08T12:39:49+00:00",
+  "source_eval": "eval_hf.json",
+  "items_fingerprint": "f1234876f5b6c094",
+  "tokenizer": "unsloth/Qwen3-1.7B",
+  "models": {
+    "base": {
+      "all": {
+        "n": 500,
+        "mean_chars": 127.6,
+        "mean_tokens": 36.2,
+        "batch_size": 8,
+        "mean_batch_max_tokens": 64.5
+      },
+      "gqa": {
+        "n": 375,
+        "mean_chars": 111.1,
+        "mean_tokens": 33.2
+      },
+      "refusal": {
+        "n": 75,
+        "mean_chars": 99.8,
+        "mean_tokens": 28.0
+      },
+      "mcq": {
+        "n": 50,
+        "mean_chars": 293.0,
+        "mean_tokens": 70.9
+      }
+    },
+    "finetuned": {
+      "all": {
+        "n": 500,
+        "mean_chars": 153.9,
+        "mean_tokens": 41.6,
+        "batch_size": 8,
+        "mean_batch_max_tokens": 62.1
+      },
+      "gqa": {
+        "n": 375,
+        "mean_chars": 156.1,
+        "mean_tokens": 42.9
+      },
+      "refusal": {
+        "n": 75,
+        "mean_chars": 98.1,
+        "mean_tokens": 25.8
+      },
+      "mcq": {
+        "n": 50,
+        "mean_chars": 221.4,
+        "mean_tokens": 55.6
+      }
+    }
+  }
+}

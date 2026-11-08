@@ -549,6 +549,14 @@ Do not write any numbers into docs; they must come from results files after I ru
 ```
 **You do:** run the notebook on Colab (T4) → download the GGUF → `ollama create study-buddy-qwen -f finetune/Modelfile` → test the switch on the Ask page.
 
+**Phase 10 implementation notes (where it differs from §8):**
+- **Training format.** Grounded QA and refusal use the **app's own `rag_answer@v1` prompt and JSON output** (`answerable`, `answer` with `[Cn]` citations, `citations`), not the plain-text format in §8.2. That's the prompt the app sends to the `finetuned` generator.
+  - The excerpts are the SciQ support paragraph plus 1–2 unrelated paragraphs, shuffled.
+  - `finetune/tests/test_prompt_sync.py` fails if the copy drifts from the app.
+- **Mix.** Grounded QA ≈ 75 %, refusal 15 %, MCQ generation 10 %: 3,000 train, 300 validation, and 500 test items (the test items are used only for evaluation).
+- **Thinking off everywhere.** Ollama 0.40 renders Qwen3 with the chat template embedded in the GGUF and ignores a Modelfile `TEMPLATE`. So both GGUFs carry a thinking-off template (`finetune/set_chat_template.py`), and the base model is `study-buddy-qwen-base`, built from `qwen3:1.7b`'s GGUF with that template.
+- **Evaluation.** BERTScore is not computed. The primary comparison runs in Colab (same 4-bit weights, LoRA adapter off vs on); `evaluate.py --backend ollama` measures CPU latency through the app's serving path.
+
 ### Phase 11: LLMOps dashboard and evaluation
 ```
 Implement Phase 11 from §7: /llmops endpoints (p50/p95 latency per task, tokens, cost, error rate, RTF), the eval harness (eval/run.py) computing Hit@k, MRR, context precision, faithfulness (LLM-as-judge claim checking with a versioned judge prompt), and refusal accuracy for the generators cloud|finetuned|base. Store results in eval_runs/eval_items.

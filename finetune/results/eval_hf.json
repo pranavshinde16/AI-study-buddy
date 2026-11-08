@@ -1,0 +1,124 @@
+{
+  "backend": "hf",
+  "created_at": "2026-11-08T11:37:06+00:00",
+  "n_items": 500,
+  "items_fingerprint": "f1234876f5b6c094",
+  "by_task": {
+    "gqa": 375,
+    "refusal": 75,
+    "mcq": 50
+  },
+  "decoding": {
+    "greedy": true,
+    "max_new_tokens": 256,
+    "enable_thinking": false
+  },
+  "prompt_versions": {
+    "rag_answer": "rag_answer@v1",
+    "mcq_gen": "mcq_gen@v1"
+  },
+  "python": "3.13.16",
+  "gpu": "Tesla T4",
+  "versions": {
+    "python": "3.13.16",
+    "torch": "2.14.1+cu130",
+    "torchvision": "0.29.1+cu130",
+    "triton": "3.8.0",
+    "unsloth": "2026.10.8",
+    "unsloth_zoo": "2026.10.8",
+    "transformers": "5.17.0",
+    "tokenizers": "0.23.3",
+    "trl": "1.15.0",
+    "peft": "0.21.2",
+    "accelerate": "1.15.0",
+    "bitsandbytes": "0.50.2",
+    "datasets": "4.8.5",
+    "huggingface_hub": "1.33.0",
+    "torchao": "0.18.0",
+    "xformers": null
+  },
+  "base_model": "unsloth/Qwen3-1.7B",
+  "base_model_revision": "6262b50d6c1f8ee5e4ac750d710c33603bfc2a0c",
+  "latency_note": "GPU time per item, batched (batch time / batch size), 4-bit weights",
+  "json_mode": false,
+  "models": {
+    "base": {
+      "model": "base",
+      "wall_time_s": 314.0,
+      "request_errors": 0,
+      "n_items": 500,
+      "gqa": {
+        "n": 375,
+        "accuracy": 0.7227,
+        "token_f1": 0.3535,
+        "rouge_l": 0.3378,
+        "json_valid_rate": 1.0,
+        "gold_citation_rate": 0.8613
+      },
+      "refusal": {
+        "n_should_refuse": 75,
+        "n_should_answer": 375,
+        "precision": 0.4737,
+        "recall": 0.84,
+        "f1": 0.6058,
+        "confusion": {
+          "tp": 63,
+          "fp": 70,
+          "fn": 12,
+          "tn": 305
+        }
+      },
+      "rag_json_valid_rate": 1.0,
+      "mcq": {
+        "n": 50,
+        "json_valid_rate": 0.9,
+        "answer_matches_source_rate": 0.08
+      },
+      "latency_ms": {
+        "mean": 624.7072,
+        "p50": 605.2,
+        "p95": 893.1,
+        "n": 500
+      }
+    },
+    "finetuned": {
+      "model": "finetuned",
+      "wall_time_s": 409.3,
+      "request_errors": 0,
+      "n_items": 500,
+      "gqa": {
+        "n": 375,
+        "accuracy": 0.9093,
+        "token_f1": 0.8339,
+        "rouge_l": 0.8299,
+        "json_valid_rate": 1.0,
+        "gold_citation_rate": 0.984
+      },
+      "refusal": {
+        "n_should_refuse": 75,
+        "n_should_answer": 375,
+        "precision": 0.9221,
+        "recall": 0.9467,
+        "f1": 0.9342,
+        "confusion": {
+          "tp": 71,
+          "fp": 6,
+          "fn": 4,
+          "tn": 369
+        }
+      },
+      "rag_json_valid_rate": 1.0,
+      "mcq": {
+        "n": 50,
+        "json_valid_rate": 0.82,
+        "answer_matches_source_rate": 0.22
+      },
+      "latency_ms": {
+        "mean": 815.9832,
+        "p50": 766.3,
+        "p95": 1119.5,
+        "n": 500
+      }
+    }
+  }
+}

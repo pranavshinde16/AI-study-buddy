@@ -1,0 +1,29 @@
+# Fine-tuning requirements for Google Colab (T4 GPU). Exact versions, each released at least
+# 14 days before 2026-11-07, and mutually compatible: unsloth 2026.10.8 needs
+# transformers <= 5.17.0, trl <= 1.15.0 and datasets < 5.
+#
+# The notebook installs this file in two steps (see its "Install" cell):
+#   1. the [no-deps] section with `pip install --no-deps`, so Unsloth can't replace Colab's
+#      preinstalled torch/torchvision or pull an xformers build for a different torch;
+#   2. the [deps] section normally, with `torch==<the installed version>` added so pip keeps it.
+# torch, torchvision, triton, numpy and protobuf come from the Colab image; the notebook records
+# their versions in results/training.json.
+
+# [no-deps]
+unsloth==2026.10.8
+unsloth_zoo==2026.10.8
+
+# [deps]
+transformers==5.17.0
+tokenizers==0.23.3
+trl==1.15.0
+peft==0.21.2
+accelerate==1.15.0
+bitsandbytes==0.50.2
+datasets==4.8.5
+huggingface_hub==1.33.0
+torchao==0.18.0
+tyro==1.0.16
+hf_transfer==0.1.9
+sentencepiece==0.2.2
+gguf==0.19.0
