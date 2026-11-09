@@ -1,0 +1,12 @@
+﻿{
+  "name": "ai-study-buddy-report",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Builds docs/report/AI_Study_Buddy_Report.docx from the docs and results files",
+  "scripts": {
+    "build": "node build_report.js"
+  },
+  "dependencies": {
+    "docx": "9.15.3"
+  }
+}

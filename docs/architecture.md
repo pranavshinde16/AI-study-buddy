@@ -1,13 +1,17 @@
 # Architecture
 
-This page describes the backend as built through **Phase 7** (upload, transcription, search indexing, summary and notes, quizzes with grading and mastery, flashcards, grounded Q&A and chat), plus the Phase 10 SLM serving and the Phase 11 LLMOps metrics and evaluation harness ([llmops.md](llmops.md)). Parts that later phases add are marked *(planned)*. The full design and phase plan live in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
+This page describes the finished app: the React frontend, the FastAPI backend (upload, transcription, search indexing, summary and notes, quizzes with grading and mastery, flashcards, grounded Q&A and chat), the fine-tuned SLM served through Ollama, the LLMOps metrics and evaluation harness ([llmops.md](llmops.md)) and the Docker deployment ([deployment.md](deployment.md)). Phase 9 (mind map, adaptive learning) was not built; see §12. The full design and phase plan live in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
+
+![AI Study Buddy architecture](images/architecture.png)
+
+*Figure: system architecture, exported from the team's design canvas to `docs/images/architecture.png`. The Mermaid diagrams below show the same structure in more detail.*
 
 ## 1. System overview
 
 ```mermaid
 flowchart LR
   subgraph Client
-    FE["React app (Phase 8, planned)<br/>Swagger UI /docs today"]
+    FE["React SPA<br/>Vite + TypeScript + TanStack Query"]
   end
   subgraph Backend["FastAPI backend"]
     R["Routers<br/>api/routers/*"] --> S["Services<br/>services/*"]
@@ -33,7 +37,7 @@ flowchart LR
   FS[("storage/<br/>uploads + temporary audio")]
   GROQ["Groq API (free tier)<br/>whisper-large-v3-turbo · gpt-oss-120b"]
   OAI["OpenAI API<br/>(optional, paid, opt-in only)"]
-  OLL["Ollama + fine-tuned SLM<br/>(Phase 10, planned)"]
+  OLL["Ollama<br/>fine-tuned + base Qwen3-1.7B (GGUF)"]
   CH[("ChromaDB<br/>storage/chroma, cosine")]
 
   FE -- "REST + JWT" --> R
@@ -147,7 +151,7 @@ All model calls go through three wrappers. No other code calls an SDK or model d
 
 | Wrapper | Used for | Providers |
 |---|---|---|
-| `services/llm/client.py` → `LLMClient.complete()` | topics, notes, summary, quiz, short-answer grading, flashcards, RAG answer and follow-up rewrite | `groq` (default), `openai` (opt-in), `ollama` (Phase 10) |
+| `services/llm/client.py` → `LLMClient.complete()` | topics, notes, summary, quiz, short-answer grading, flashcards, RAG answer and follow-up rewrite, evaluation judge | `groq` (default), `openai` (opt-in), `ollama` (fine-tuned and base SLM) |
 | `services/asr/client.py` → `ASRClient.transcribe_chunk()` | speech-to-text | `groq` (default), `openai` (opt-in), `local` (faster-whisper, optional) |
 | `services/embeddings.py` → `EmbeddingClient.embed()` / `embed_queries()` | chunk indexing, search queries (with bge's prefix), short-answer grading fallback | `local` (sentence-transformers, loaded on first use) |
 
@@ -185,7 +189,6 @@ Cost comes from `backend/config/pricing.yaml`: `free_tier` and `local` providers
 | `qa_logs` | chat service | one row per question: generator, scores, threshold, refusal reason, retrieval and end-to-end latency |
 | `llm_calls` | LLM, ASR and embedding clients | one row per model request (kept when a lecture is deleted: `lecture_id` set to NULL) |
 | `pipeline_runs` | pipeline | one row per stage with duration and audio seconds |
-
 | `eval_runs`, `eval_items` | eval harness (`python -m eval.run`), offline import | Phase 11: one run per generator (+ one retrieval run) per golden set, per-question results; Phase 10 SciQ files imported as `source=offline_import`. See [llmops.md](llmops.md) |
 
 Files on disk (`STORAGE_DIR`, gitignored):
@@ -241,3 +244,49 @@ flowchart LR
 → `frontend` (nginx serves the SPA and proxies `/api`, re-resolving the backend's name so a recreated backend is
 found). Each waits for the previous one's healthcheck. Compose overrides only the container paths and hosts; every
 other setting comes from `.env`. Details, the Ollama profile and the VM guide: [deployment.md](deployment.md).
+
+## 10. Frontend
+
+A React 18 single-page app (`frontend/`), built with Vite and TypeScript and styled with Tailwind CSS and shadcn/ui.
+
+| Part | Folder | Responsibility |
+|---|---|---|
+| API client | `src/api/client.ts`, `endpoints.ts`, `types.ts` | One HTTP client: adds the Bearer token, turns the error envelope into a typed `ApiError`, handles 401 (log out once), downloads and upload progress. `endpoints.ts` has one typed function per backend endpoint; `types.ts` mirrors the backend's Pydantic schemas |
+| Data fetching | `src/api/hooks.ts` (TanStack Query) | Caching, polling of `/status` while a lecture is processing, invalidation after mutations |
+| Routing | `src/routes.tsx` | React Router; pages are lazy-loaded; logged-out visitors go to `/login` |
+| Pages | `src/pages/` | Login / Register, Dashboard, Upload, Processing, the lecture workspace (Transcript, Summary & Notes, Quiz, Ask, Flashcards, Mind map placeholder), Analytics, LLMOps |
+| Helpers | `src/lib/` | Formatting, transcript search, quiz/chat helpers, LLMOps chart rows (all unit-tested) |
+
+Charts use Recharts. The Dashboard and Analytics pages compute their figures from the existing lecture, quiz and
+flashcard endpoints (no separate dashboard API). No page uses mock data; the tests use mocked API responses only
+([testing.md](testing.md)).
+
+## 11. Q&A (RAG) flow
+
+```mermaid
+flowchart TD
+  Q["Student question + chat history"] --> H{"follow-up in a chat?"}
+  H -- yes --> RW["rag_rewrite@v1: rewrite into a standalone question"]
+  H -- no --> EQ
+  RW --> EQ["Embed the query: bge-small + query prefix"]
+  EQ --> S["ChromaDB top-k = RAG_TOP_K (5)<br/>filtered by lecture_id, cosine score"]
+  S --> T{"best score ≥ RAG_MIN_SCORE (0.50)?"}
+  T -- no --> R1["Refuse without an LLM call<br/>refusal_reason = below_threshold<br/>+ closest timestamps"]
+  T -- yes --> P["rag_answer@v1: answer only from chunks C1..Ck<br/>generator = cloud | finetuned | base"]
+  P --> A{"answerable?"}
+  A -- no --> R2["Refuse<br/>refusal_reason = not_in_chunks"]
+  A -- yes --> CV["Drop cited chunk ids that were not given"]
+  CV --> OUT["Answer + sources<br/>start/end from transcript segments"]
+  R1 & R2 & OUT --> LOG["qa_logs + llm_calls rows<br/>(latency, scores, tokens, prompt and model version)"]
+```
+
+Two layers decide whether to answer: the similarity threshold refuses clearly unrelated questions cheaply, and the
+answer prompt refuses questions from the same field that the lecture doesn't cover. The threshold was calibrated in
+Phase 7 and re-checked on the golden set in Phase 11 ([rag.md](rag.md#3-calibrating-rag_min_score)).
+
+## 12. Not built (Phase 9, future work)
+
+Phase 9 was skipped. The following parts of the original design are therefore **not** in the app: the mind map
+(`POST /lectures/{id}/mindmap`; the tab shows a "planned" placeholder), adaptive quiz difficulty
+(`adaptive: true` returns `422 ADAPTIVE_NOT_AVAILABLE`), revision recommendations, `GET /lectures/{id}/progress`
+and `GET /dashboard/overview`. Topic mastery is already stored (`topic_mastery`), so these features can build on it.

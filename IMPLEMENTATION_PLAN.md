@@ -621,7 +621,7 @@ Then draft the technical report as a Word document, using only real results.
 - [x] Phase 10: Fine-tuning
 - [x] Phase 11: LLMOps & eval
 - [x] Phase 12: Docker & deploy
-- [ ] Phase 13: Testing & deliverables
+- [x] Phase 13: Testing & deliverables
 
 ### Decisions still open (confirm before Phase 2)
 1. ~~LLM provider~~ **Decided:** free Groq by default (`openai/gpt-oss-120b` + `whisper-large-v3-turbo`). OpenAI is optional, opt-in only, and never a fallback.

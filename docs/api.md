@@ -2,7 +2,11 @@
 
 Base URL: `http://localhost:8000/api` · interactive docs: http://localhost:8000/docs (Swagger UI) · schema: `/openapi.json`.
 
-This page covers the endpoints implemented through **Phase 7**, two Phase 8 additions (`GET /lectures/{id}/media` for the transcript player, and `refusal_reason` in chat history) and the Phase 11 LLMOps endpoints. The JSON below shows **shapes** with placeholder values, not real outputs.
+This page describes every endpoint of the finished app: **39 operations** (OpenAPI version 0.1.0). The JSON below shows **shapes** with placeholder values, not real outputs.
+
+**Machine-readable copy:** [openapi.json](openapi.json), generated from the running code by `python -m scripts.export_openapi` (run in `backend/`; same command in PowerShell and bash). Import it into Postman or Insomnia, or re-run the script after an API change. The "Errors" column below lists the status codes each operation declares in that schema; the code names are in [Error codes](#error-codes).
+
+Not implemented (Phase 9, future work): `POST /lectures/{id}/mindmap`, `GET /lectures/{id}/progress`, `GET /dashboard/overview`, adaptive quizzes (`adaptive: true` returns `422 ADAPTIVE_NOT_AVAILABLE`) and the `POST /llmops/eval/run` endpoint (evaluation runs from the CLI, `python -m eval.run`).
 
 ## Conventions
 
@@ -13,41 +17,49 @@ This page covers the endpoints implemented through **Phase 7**, two Phase 8 addi
 
 ## Endpoints
 
-| Method | Path | Purpose | Success |
-|---|---|---|---|
-| GET | `/health` | Liveness + database and vector-store checks | 200 |
-| POST | `/auth/register` | Create an account | 201 |
-| POST | `/auth/login` | Get a JWT | 200 |
-| GET | `/auth/me` | Current user | 200 |
-| POST | `/lectures/upload` | Upload MP3/WAV/MP4/M4A and start processing | 202 |
-| GET | `/lectures` | Your lectures, newest first | 200 |
-| GET | `/lectures/{id}` | Lecture metadata | 200 |
-| GET | `/lectures/{id}/status` | Pipeline stage and progress | 200 |
-| DELETE | `/lectures/{id}` | Delete the lecture, its transcript, outputs and files | 204 |
-| GET | `/lectures/{id}/transcript` | Timestamped segments | 200 |
-| GET | `/lectures/{id}/transcript/download?format=txt\|srt\|vtt` | File download | 200 |
-| GET | `/lectures/{id}/media` | The original recording, for the media player | 200 / 206 |
-| POST | `/lectures/{id}/summarize` | Summary, takeaways, definitions, topic notes, revision notes (cached) | 200 |
-| GET | `/lectures/{id}/notes` | Topic-wise notes | 200 |
-| POST | `/lectures/{id}/generate-quiz` | Generate a quiz (answers hidden) | 201 |
-| GET | `/lectures/{id}/quizzes` | Your quizzes for the lecture, newest first | 200 |
-| GET | `/quizzes/{quiz_id}` | A quiz without its answers | 200 |
-| POST | `/quizzes/{quiz_id}/submit` | Grade, explain, update topic mastery | 200 |
-| POST | `/lectures/{id}/flashcards` | Generate the flashcard deck (cached) | 200 |
-| GET | `/lectures/{id}/flashcards?due=true` | The deck, optionally only cards due now | 200 |
-| POST | `/flashcards/{card_id}/review` | Record knew / didn't know (Leitner box) | 200 |
-| POST | `/lectures/{id}/ask` | One grounded question (answer + timestamped sources, or a refusal) | 200 |
-| POST | `/lectures/{id}/chat` | Multi-turn chat (`session_id`); follow-ups are rewritten | 200 |
-| GET | `/lectures/{id}/chat` | Your chat sessions for the lecture | 200 |
-| GET | `/lectures/{id}/chat/{session_id}` | Chat history with sources | 200 |
-| GET | `/models` | Answer generators for `model` (cloud, finetuned, base, configured) | 200 |
-| GET | `/llmops/summary` | KPI cards: calls, tokens, actual + equivalent cost, error rate, RTF | 200 |
-| GET | `/llmops/latency` · `/llmops/qa-latency` | p50/p95 per task (M2/M3) · end-to-end per generator (M4) | 200 |
-| GET | `/llmops/usage?group=task\|day\|lecture` | Tokens, actual and equivalent cost (M5) | 200 |
-| GET | `/llmops/transcription` | Real-time factor per lecture (M1) | 200 |
-| GET | `/llmops/errors` · `/llmops/refusals` · `/llmops/prompts` | Error / parse-failure rates · refusal split · per prompt version | 200 |
-| GET | `/llmops/filters` · `/llmops/models` | Filter values · model registry | 200 |
-| GET | `/llmops/eval/runs` · `/llmops/eval/runs/{id}` · `/llmops/eval/compare` | Evaluation runs, one run with items, cloud vs finetuned vs base | 200 |
+Paths are relative to `/api`. Every error code except `401` (missing or bad token) and `422` (validation) is explained in the sections below.
+
+| Method | Path | Purpose | Success | Errors (from OpenAPI) |
+|---|---|---|---|---|
+| GET | `/health` | Liveness + database and vector-store checks | 200 | – |
+| POST | `/auth/register` | Create an account | 201 | 409, 422 |
+| POST | `/auth/login` | Get a JWT | 200 | 401, 422 |
+| GET | `/auth/me` | Current user | 200 | 401 |
+| POST | `/lectures/upload` | Upload MP3/WAV/MP4/M4A and start processing | 202 | 401, 413, 415, 422, 503 |
+| GET | `/lectures` | Your lectures, newest first | 200 | 401 |
+| GET | `/lectures/{id}` | Lecture metadata | 200 | 401, 404, 422 |
+| GET | `/lectures/{id}/status` | Pipeline stage and progress | 200 | 401, 404, 422 |
+| DELETE | `/lectures/{id}` | Delete the lecture, its transcript, outputs, files and vectors | 204 | 401, 404, 422 |
+| GET | `/lectures/{id}/transcript` | Timestamped segments | 200 | 401, 404, 409, 422 |
+| GET | `/lectures/{id}/transcript/download?format=txt\|srt\|vtt` | File download | 200 | 401, 404, 409, 422 |
+| GET | `/lectures/{id}/media` | The original recording, for the media player | 200 / 206 | 401, 404, 422 |
+| POST | `/lectures/{id}/summarize` | Summary, takeaways, definitions, topic notes, revision notes (cached) | 200 | 401, 404, 409, 422, 429, 502, 503 |
+| GET | `/lectures/{id}/notes` | Topic-wise notes | 200 | 401, 404, 409, 422 |
+| POST | `/lectures/{id}/generate-quiz` | Generate a quiz (answers hidden) | 201 | 401, 404, 409, 422, 429, 502, 503 |
+| GET | `/lectures/{id}/quizzes` | Your quizzes for the lecture, newest first | 200 | 401, 404, 422 |
+| GET | `/quizzes/{quiz_id}` | A quiz without its answers | 200 | 401, 404, 422 |
+| POST | `/quizzes/{quiz_id}/submit` | Grade, explain, update topic mastery | 200 | 401, 404, 422, 503 |
+| POST | `/lectures/{id}/flashcards` | Generate the flashcard deck (cached) | 200 | 401, 404, 409, 422, 429, 502, 503 |
+| GET | `/lectures/{id}/flashcards?due=true` | The deck, optionally only cards due now | 200 | 401, 404, 422 |
+| POST | `/flashcards/{card_id}/review` | Record knew / didn't know (Leitner box) | 200 | 401, 404, 422 |
+| POST | `/lectures/{id}/ask` | One grounded question (answer + timestamped sources, or a refusal) | 200 | 401, 404, 409, 422, 429, 502, 503 |
+| POST | `/lectures/{id}/chat` | Multi-turn chat (`session_id`); follow-ups are rewritten | 200 | 401, 404, 409, 422, 429, 502, 503 |
+| GET | `/lectures/{id}/chat` | Your chat sessions for the lecture | 200 | 401, 404, 422 |
+| GET | `/lectures/{id}/chat/{session_id}` | Chat history with sources | 200 | 401, 404, 422 |
+| GET | `/models` | Answer generators for `model` (cloud, finetuned, base, configured) | 200 | 401 |
+| GET | `/llmops/summary` | KPI cards: calls, tokens, actual + equivalent cost, error rate, RTF | 200 | 401, 422 |
+| GET | `/llmops/filters` | Values available for the filters | 200 | 401 |
+| GET | `/llmops/latency` | M2/M3: p50/p95 per task and model | 200 | 401, 422 |
+| GET | `/llmops/qa-latency` | M4: end-to-end question latency per generator | 200 | 401, 422 |
+| GET | `/llmops/usage?group=task\|day\|lecture` | M5: tokens, actual and equivalent cost | 200 | 401, 422 |
+| GET | `/llmops/transcription` | M1: real-time factor per lecture | 200 | 401, 422 |
+| GET | `/llmops/errors` | Error and JSON parse-failure rates, latest failures | 200 | 401, 422 |
+| GET | `/llmops/refusals` | Refusals per generator, threshold vs model | 200 | 401, 422 |
+| GET | `/llmops/prompts` | Metrics per prompt version | 200 | 401, 422 |
+| GET | `/llmops/models` | Model registry (Ollama digests, ASR, embedding, judge, prompts) | 200 | 401 |
+| GET | `/llmops/eval/runs` | Evaluation runs, newest first | 200 | 401, 422 |
+| GET | `/llmops/eval/runs/{run_id}` | One evaluation run with its items | 200 | 401, 404, 422 |
+| GET | `/llmops/eval/compare` | cloud vs finetuned vs base on a golden set, plus SciQ offline runs | 200 | 401, 422 |
 
 ## Auth
 

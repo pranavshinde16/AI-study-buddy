@@ -59,4 +59,5 @@ filelock==4.2.4
 
 # Dev / test
 pytest==9.1.1               # test runner
+pytest-cov==7.1.0           # coverage report: pytest --cov=app (Phase 13)
 httpx==0.28.1               # HTTP client used by FastAPI's TestClient
