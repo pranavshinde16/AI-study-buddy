@@ -4,10 +4,10 @@ A web app that turns recorded lectures into transcripts, notes, quizzes, flashca
 
 - **Design and phase plan:** [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 - **Rules for contributors and Claude Code:** [CLAUDE.md](CLAUDE.md)
-- **Docs:** [architecture](docs/architecture.md) · [REST API](docs/api.md) · [summary & notes](docs/summarization.md) · [quizzes & flashcards](docs/quizzes.md) · [Q&A and chat](docs/rag.md)
+- **Docs:** [architecture](docs/architecture.md) · [REST API](docs/api.md) · [summary & notes](docs/summarization.md) · [quizzes & flashcards](docs/quizzes.md) · [Q&A and chat](docs/rag.md) · [fine-tuning](docs/finetuning.md) · [LLMOps](docs/llmops.md) · [Docker & deployment](docs/deployment.md)
 - **Runs on free tiers by default:** Groq for speech recognition (`whisper-large-v3-turbo`) and the LLM (`openai/gpt-oss-120b`, an open-weight model hosted on Groq). OpenAI is optional and only used if you set it explicitly.
 
-> Status: Phase 7 (grounded Q&A and chat). Ask questions about a lecture and get answers from its transcript only, with the timestamps where it is said, or a clear "not covered in the lecture". Chat supports follow-up questions. Upload a lecture recording; a background pipeline extracts the audio with ffmpeg, transcribes it with Groq Whisper, then writes a summary, key takeaways, definitions, topic-wise notes and revision notes with Groq `gpt-oss-120b`, all from the transcript only and with timestamps taken from the transcript. You can then generate validated quizzes (MCQ, true/false, short answer), get them graded with explanations and per-topic mastery, and study a flashcard deck with Leitner-box reviews. Everything runs on free tiers. The frontend is still an app shell with placeholder pages.
+> Status: Phase 12 (Docker and deployment). Upload a lecture recording; a background pipeline extracts the audio with ffmpeg, transcribes it with Groq Whisper, then writes a summary, key takeaways, definitions, topic-wise notes and revision notes with Groq `gpt-oss-120b`, all from the transcript only and with timestamps taken from the transcript. Generate validated quizzes and flashcards, and ask questions answered only from the lecture (with timestamps, or a clear "not covered in the lecture"), using the cloud model or the fine-tuned Qwen3-1.7B through Ollama. The LLMOps page shows latency, tokens, cost, errors, model versions and golden-set evaluation results. Run everything with `docker compose up --build`. Phase 9 (mind map, learning features) is not implemented yet.
 
 ## Stack
 FastAPI · Pydantic v2 · PostgreSQL 16 (Docker) · React 18 + Vite + TypeScript · Tailwind CSS v4 · shadcn/ui · React Router
@@ -142,6 +142,19 @@ Open http://localhost:5173. Requests to `/api/*` are proxied to the backend at `
 | `$env:API_PROXY_TARGET="http://localhost:8001"; npm run dev` | `API_PROXY_TARGET=http://localhost:8001 npm run dev` |
 
 Other scripts: `npm test` · `npm run typecheck` · `npm run lint` · `npm run build`
+
+## Run everything with Docker
+
+Needs only Docker and the `.env` from step 2 (no Python, Node or ffmpeg on your machine). Same commands in PowerShell, macOS and Linux:
+
+```bash
+docker compose up --build -d
+docker compose ps        # wait until every service shows "healthy"
+```
+
+Open http://localhost:8080 (Swagger: http://localhost:8080/docs). The fine-tuned and base models use the Ollama on your computer by default. Stop with `docker compose down` (data is kept in Docker volumes).
+
+Already used the app in development? Copy your uploads and vectors into the volumes once with `docker compose --profile seed run --rm seed`. Details, the optional Ollama container and a guide for deploying to a small Linux VM: [docs/deployment.md](docs/deployment.md).
 
 ## Repository layout
 See [IMPLEMENTATION_PLAN.md §11](IMPLEMENTATION_PLAN.md#11-repository-layout).

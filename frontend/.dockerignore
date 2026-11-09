@@ -1,0 +1,10 @@
+# Keep the build context small; node_modules is installed fresh inside the image.
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+.env
+.env.*
+Dockerfile
+.dockerignore

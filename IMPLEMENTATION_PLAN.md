@@ -620,7 +620,7 @@ Then draft the technical report as a Word document, using only real results.
 - [ ] Phase 9: Learning features
 - [x] Phase 10: Fine-tuning
 - [x] Phase 11: LLMOps & eval
-- [ ] Phase 12: Docker & deploy
+- [x] Phase 12: Docker & deploy
 - [ ] Phase 13: Testing & deliverables
 
 ### Decisions still open (confirm before Phase 2)

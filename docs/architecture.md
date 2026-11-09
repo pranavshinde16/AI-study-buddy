@@ -223,3 +223,21 @@ All settings are read by `app/core/config.py` from environment variables or the 
 - `pytest` runs on in-memory SQLite with fake providers (`tests/fakes.py`): `FakeASRProvider` for speech, `FakeLectureLLM` for the topics/notes/summary/quiz/grading/flashcard prompts (it can inject invalid quiz items to test regeneration), and `FakeEmbedder` (bag-of-words vectors, so the embedding model is never downloaded in tests). The vector store is a real in-memory Chroma with a new collection per test (telemetry off). An autouse fixture fails any test that opens a non-loopback network connection.
 - Media tests generate short tones and tiny videos with ffmpeg (`tests/fixtures/audio.py`) and are skipped if ffmpeg is not installed.
 - Real-provider checks are manual: `scripts/llm_smoke.py`, `scripts/embedding_smoke.py`, `scripts/manual_phase4.*`, `scripts/manual_phase5.*`, `scripts/manual_phase6.*`, `scripts/manual_phase7.*`, `scripts/calibrate_rag.py`.
+- `tests/test_docker_config.py` checks the compose file, Dockerfiles and nginx config without Docker (skipped inside the backend image, which has no compose file).
+
+## 9. Deployment (Phase 12)
+
+```mermaid
+flowchart LR
+    B[Browser] -->|:8080| N[frontend: nginx<br/>React build]
+    N -->|/api, /docs| A[backend: FastAPI + ffmpeg<br/>+ bge-small CPU]
+    A --> P[(db: Postgres 16<br/>volume pgdata)]
+    A --> V[(volumes: storage, chroma, hf-cache)]
+    A -->|host.docker.internal:11434<br/>or ollama container| O[Ollama: finetuned / base]
+    A -->|HTTPS| G[Groq: Whisper, gpt-oss-120b]
+```
+
+`docker compose up --build` starts `db` → `backend` (runs `alembic upgrade head`, then uvicorn as a non-root user)
+→ `frontend` (nginx serves the SPA and proxies `/api`, re-resolving the backend's name so a recreated backend is
+found). Each waits for the previous one's healthcheck. Compose overrides only the container paths and hosts; every
+other setting comes from `.env`. Details, the Ollama profile and the VM guide: [deployment.md](deployment.md).

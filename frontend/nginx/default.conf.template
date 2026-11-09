@@ -1,0 +1,50 @@
+# nginx for the frontend container (Phase 12). ${BACKEND_URL} and ${MAX_UPLOAD_MB} are filled in at start-up.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    # Re-resolve the backend's name every 10 s (filled from /etc/resolv.conf by the nginx image), so a
+    # recreated backend container with a new IP is found without restarting nginx.
+    resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=off;
+    set $backend_upstream ${BACKEND_URL};
+
+    # Lecture uploads go through this proxy, so allow the same size as the backend (MAX_UPLOAD_MB).
+    client_max_body_size ${MAX_UPLOAD_MB}m;
+
+    # Container healthcheck (does not touch the backend).
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # API, Swagger UI and the OpenAPI schema -> FastAPI. Same origin for the browser, so no CORS.
+    location ~ ^/(api|docs|openapi\.json) {
+        # A variable makes nginx resolve per request (through `resolver`); the request URI is passed unchanged.
+        proxy_pass $backend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Local models on CPU take 20-30 s per answer; LLM calls may take up to LLM_TIMEOUT_SEC (120 s) plus retries.
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        # Stream large uploads to the backend instead of buffering them in nginx first.
+        proxy_request_buffering off;
+    }
+
+    # Hashed build assets can be cached for a long time.
+    location /assets/ {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Single-page app: unknown paths (e.g. /lectures/<id>/ask on reload) return index.html.
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
+    }
+}

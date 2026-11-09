@@ -106,4 +106,8 @@ FINETUNE_RESULTS_DIR=../finetune/results
 
 EVAL_JUDGE_PROVIDER=groq
 EVAL_JUDGE_MODEL=qwen/qwen3.8-27b   # eval harness judge; differs from LLM_MODEL; JUDGE_MODEL stays for quiz grading
+
+# Docker Compose only (read by docker-compose.yml, not by the app)
+FRONTEND_PORT=8080
+DOCKER_FINETUNED_BASE_URL=   # blank = host Ollama via host.docker.internal; http://ollama:11434/v1 with --profile ollama
 ```

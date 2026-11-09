@@ -1,6 +1,11 @@
-# Phase 2: database only. Backend, frontend and Ollama services are added in Phase 12.
-#   Start:  docker compose up -d db
-#   Stop:   docker compose down        (add -v to also delete the data volume)
+# AI Study Buddy: full stack (Phase 12).
+#   Everything:        docker compose up --build            -> http://localhost:8080
+#   Database only:     docker compose up -d db              (local development with uvicorn + npm run dev)
+#   Ollama container:  docker compose --profile ollama up --build   (also set DOCKER_FINETUNED_BASE_URL, see docs/deployment.md)
+#   Copy ./storage into the volumes once:  docker compose --profile seed run --rm seed
+#   Stop:              docker compose down                  (add -v to also DELETE all data volumes)
+# Settings come from the repo-root .env; `environment:` below overrides only what differs inside containers.
+
 services:
   db:
     image: postgres:16
@@ -11,7 +16,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-studybuddy}
       POSTGRES_DB: ${POSTGRES_DB:-studybuddy}
     ports:
-      - "5432:5432"
+      - "5432:5432"   # for local development; remove on a public server
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -20,5 +25,73 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    build: ./backend
+    image: studybuddy-backend:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-studybuddy}:${POSTGRES_PASSWORD:-studybuddy}@db:5432/${POSTGRES_DB:-studybuddy}
+      STORAGE_DIR: /data/storage
+      CHROMA_DIR: /data/chroma
+      HF_HOME: /data/hf-cache
+      FINETUNE_RESULTS_DIR: /app/finetune-results
+      # Ollama on the host by default; with --profile ollama set DOCKER_FINETUNED_BASE_URL=http://ollama:11434/v1
+      FINETUNED_BASE_URL: ${DOCKER_FINETUNED_BASE_URL:-http://host.docker.internal:11434/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # makes host.docker.internal work on Linux too
+    volumes:
+      - storage:/data/storage
+      - chroma:/data/chroma
+      - hf-cache:/data/hf-cache
+      - ./finetune/results:/app/finetune-results:ro   # Phase 10 provenance for the model registry
+    depends_on:
+      db:
+        condition: service_healthy
+    # The healthcheck is defined in backend/Dockerfile (GET /api/health).
+
+  frontend:
+    build: ./frontend
+    image: studybuddy-frontend:local
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-500}
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  ollama:
+    image: ollama/ollama:0.40.15
+    profiles: ["ollama"]
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+      - ./finetune:/finetune:ro   # Modelfiles + GGUF files for `ollama create` (see docs/deployment.md)
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # One-time copy of ./storage (dev uploads + vectors) into the storage/chroma volumes.
+  seed:
+    image: studybuddy-backend:local
+    profiles: ["seed"]
+    user: "0:0"
+    entrypoint: ["/app/docker/seed-volumes.sh"]
+    environment:
+      SEED_FORCE: ${SEED_FORCE:-0}
+    volumes:
+      - ./storage:/seed:ro
+      - storage:/data/storage
+      - chroma:/data/chroma
+
 volumes:
   pgdata:
+  storage:
+  chroma:
+  hf-cache:
+  ollama:
