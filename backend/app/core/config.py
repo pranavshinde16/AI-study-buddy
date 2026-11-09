@@ -119,6 +119,19 @@ class Settings(BaseSettings):
     finetuned_base_url: str = "http://localhost:11434/v1"
     finetuned_model_tag: str = "study-buddy-qwen"
     base_slm_model_tag: str = "qwen3:1.7b"
+    finetuned_hub_repo: str = ""  # e.g. user/study-buddy-qwen3-1.7b-sciq-lora; shown in the model registry only
+    finetune_results_dir: str = "../finetune/results"  # training.json / eval_*.json from Phase 10 (relative to backend/)
+
+    # --- Evaluation (Phase 11) ---
+    # LLM-as-judge for the eval harness. Deliberately a DIFFERENT model from the cloud generator
+    # (LLM_MODEL), to reduce self-judging bias. JUDGE_MODEL (quiz grading) is not affected.
+    eval_judge_provider: Literal["groq", "openai"] = "groq"
+    eval_judge_model: str = "qwen/qwen3.8-27b"
+
+    @property
+    def finetune_results_path(self) -> Path:
+        p = Path(self.finetune_results_dir)
+        return p if p.is_absolute() else (BACKEND_DIR / p).resolve()
 
     @model_validator(mode="after")
     def _no_default_secret_in_production(self) -> "Settings":

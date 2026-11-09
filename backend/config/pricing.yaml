@@ -19,6 +19,9 @@ providers:
     models:
       openai/gpt-oss-120b: { input: 0.15, output: 0.60 }
       openai/gpt-oss-20b: { input: 0.075, output: 0.30 }
+      # qwen/qwen3.8-27b (eval judge, Phase 11): NOT listed: its list price has not been verified, so its
+      # equivalent cost is reported as unpriced. Add it here only after checking console.groq.com/docs/models.
+      # (llama-3.3-70b-versatile, the first judge choice, is no longer offered to this key: 404 on 2026-11-09.)
     audio_models:
       whisper-large-v3-turbo: 0.000667   # reference only: $0.04 per audio hour (Developer plan)
 

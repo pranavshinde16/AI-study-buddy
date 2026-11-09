@@ -36,6 +36,9 @@ def test_upgrade_creates_all_model_tables_and_downgrade_removes_them(tmp_path):
     # Phase 6 migration
     assert "rubric_json" in cols("quiz_questions") and "score" in cols("attempt_answers")
     assert {"kind", "source_start"} <= cols("flashcards")
+    # Phase 11 migration
+    assert {"source", "lecture_id", "n_items", "error"} <= cols("eval_runs")
+    assert {"item_key", "kind", "refusal_reason", "top_score", "latency_ms", "status"} <= cols("eval_items")
 
     command.downgrade(cfg, "base")
     assert set(inspect(engine).get_table_names()) - {"alembic_version"} == set()

@@ -52,11 +52,19 @@ class PipelineRun(UUIDPrimaryKey, Base):
 
 
 class EvalRun(UUIDPrimaryKey, Base):
+    """One evaluation run. `source` = "harness" (python -m eval.run on a golden set; one run per
+    generator, plus one "retrieval" run for the shared retriever) or "offline_import" (a Phase 10
+    finetune/results/eval_*.json file imported as is, generator = base | finetuned)."""
+
     __tablename__ = "eval_runs"
 
     golden_set: Mapped[str] = mapped_column(String(200))
-    generator: Mapped[str] = mapped_column(String(32))  # cloud | finetuned | base
+    generator: Mapped[str] = mapped_column(String(32))  # cloud | finetuned | base | retrieval
     model: Mapped[str | None] = mapped_column(String(200))
+    source: Mapped[str] = mapped_column(String(32), default="harness", server_default="harness")
+    lecture_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("lectures.id", ondelete="SET NULL"))
+    n_items: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(Text)
     prompt_versions: Mapped[dict[str, Any] | None] = mapped_column(JSONType)
     config_json: Mapped[dict[str, Any] | None] = mapped_column(JSONType)
     metrics_json: Mapped[dict[str, Any] | None] = mapped_column(JSONType)  # filled only from real runs
@@ -70,6 +78,12 @@ class EvalItem(UUIDPrimaryKey, Base):
 
     run_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("eval_runs.id", ondelete="CASCADE"), index=True)
     lecture_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("lectures.id", ondelete="SET NULL"))
+    item_key: Mapped[str | None] = mapped_column(String(100))  # golden-set `id`
+    kind: Mapped[str | None] = mapped_column(String(32))  # on_topic | near_topic | off_topic
+    refusal_reason: Mapped[str | None] = mapped_column(String(32))  # below_threshold | not_in_chunks
+    top_score: Mapped[float | None] = mapped_column(Float)
+    latency_ms: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(32), default="ok", server_default="ok")  # ok | error
     question: Mapped[str] = mapped_column(Text)
     answerable: Mapped[bool] = mapped_column(Boolean)
     gold_start: Mapped[float | None] = mapped_column(Float)

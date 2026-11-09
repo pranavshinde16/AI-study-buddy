@@ -71,6 +71,107 @@ export function PercentLineChart({ data, ariaLabel }: { data: TrendPoint[]; aria
   );
 }
 
+/**
+ * Categorical slots 1-3 of the dataviz reference palette (blue, orange, aqua), validated as a set
+ * on the white card surface with scripts/validate_palette.js (--pairs all: CVD ΔE 9.2, normal 24.0).
+ * Aqua is below 3:1 contrast on white, so every chart using it ships a legend AND a table view.
+ * Colour follows the series (fixed order), never its rank.
+ */
+const CATEGORICAL = ["#2a78d6", "#eb6834", "#1baf7a"] as const;
+
+export interface SeriesSpec {
+  key: string;
+  label: string;
+}
+
+function Legend({ series }: { series: SeriesSpec[] }) {
+  return (
+    <ul className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-hidden="true">
+      {series.map((s, i) => (
+        <li key={s.key} className="flex items-center gap-1.5">
+          <span className="inline-block size-2.5 rounded-sm" style={{ backgroundColor: CATEGORICAL[i] }} />
+          {s.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Up to 3 series per category, grouped side by side (e.g. p50 vs p95) or stacked (parts of a
+ * whole). Legend above, hover tooltip with every series, 2px gaps, rounded data ends.
+ */
+export function MultiBarChart({
+  data,
+  xKey,
+  series,
+  ariaLabel,
+  stacked = false,
+  format = (v: number) => String(Math.round(v)),
+  height = 256,
+}: {
+  data: Record<string, string | number>[];
+  xKey: string;
+  series: SeriesSpec[];
+  ariaLabel: string;
+  stacked?: boolean;
+  format?: (v: number) => string;
+  height?: number;
+}) {
+  const shown = series.slice(0, CATEGORICAL.length);
+  return (
+    <div className="w-full">
+      {shown.length > 1 && <Legend series={shown} />}
+      <div className="w-full" style={{ height }} role="img" aria-label={ariaLabel}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 4 }} barGap={2} barCategoryGap="22%">
+            <CartesianGrid stroke={GRID} vertical={false} />
+            <XAxis
+              dataKey={xKey}
+              tick={tick}
+              tickLine={false}
+              axisLine={{ stroke: GRID }}
+              interval={0}
+              tickFormatter={(v: string) => (v.length > 16 ? `${v.slice(0, 15)}…` : v)}
+            />
+            <YAxis tick={tick} tickLine={false} axisLine={false} tickFormatter={(v: number) => format(v)} width={64} />
+            <Tooltip
+              cursor={{ fill: "#f1f5f9" }}
+              content={({ active, payload }) => {
+                const p = active && payload?.[0] ? payload[0].payload : null;
+                return p ? (
+                  <TooltipBox title={String(p[xKey])}>
+                    {shown.map((s, i) => (
+                      <p key={s.key} className="flex items-center gap-1.5">
+                        <span className="inline-block size-2 rounded-sm" style={{ backgroundColor: CATEGORICAL[i] }} />
+                        {s.label}: <span className="text-foreground tabular-nums">{format(Number(p[s.key] ?? 0))}</span>
+                      </p>
+                    ))}
+                  </TooltipBox>
+                ) : null;
+              }}
+            />
+            {shown.map((s, i) => (
+              <Bar
+                key={s.key}
+                dataKey={s.key}
+                name={s.label}
+                fill={CATEGORICAL[i]}
+                stackId={stacked ? "stack" : undefined}
+                stroke={stacked ? "#ffffff" : undefined}
+                strokeWidth={stacked ? 1 : 0}
+                radius={!stacked || i === shown.length - 1 ? [4, 4, 0, 0] : 0}
+                maxBarSize={40}
+                isAnimationActive={false}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 /** Vertical bars for a count or percent per category. */
 export function SimpleBarChart({
   data,

@@ -47,6 +47,13 @@ log = structlog.get_logger(__name__)
 
 # Providers whose models accept `reasoning_effort` (gpt-oss on Groq, gpt-5 on OpenAI). Not Ollama.
 REASONING_PROVIDERS = frozenset({"groq", "openai"})
+# ...and only their reasoning models: e.g. qwen/qwen3.8-27b (the Phase 11 eval judge)
+# is not one, and sending the parameter to it would be rejected.
+REASONING_MODEL_PREFIXES = ("openai/gpt-oss", "gpt-oss", "gpt-5", "o1", "o3", "o4")
+
+
+def supports_reasoning_effort(provider: str, model: str) -> bool:
+    return provider in REASONING_PROVIDERS and model.lower().startswith(REASONING_MODEL_PREFIXES)
 # Output tokens reserved for pacing before the real count is known.
 OUTPUT_RESERVE_TOKENS = 1000
 
@@ -102,8 +109,12 @@ class LLMClient:
         providers: dict[str, ChatProvider] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         rate_limiters: dict[str, TokenRateLimiter] | None = None,
+        version_resolver: Callable[[str, str, str | None], str | None] | None = None,
     ) -> None:
         self.settings = settings
+        # (provider, model, reported) -> stored model_version. None = store what the provider
+        # reported. The app wires in model_info.ModelVersionResolver (adds the Ollama digest).
+        self._version_resolver = version_resolver
         self._session_factory = session_factory
         self.prompts = prompts
         self.pricing = pricing
@@ -152,7 +163,8 @@ class LLMClient:
             json_mode=schema is not None,
             max_output_tokens=max_output_tokens or prompt.max_output_tokens or self.settings.llm_max_output_tokens,
             temperature=temperature if temperature is not None else prompt.temperature,
-            reasoning_effort=(self.settings.llm_reasoning_effort or None) if provider_name in REASONING_PROVIDERS else None,
+            reasoning_effort=((self.settings.llm_reasoning_effort or None)
+                              if supports_reasoning_effort(provider_name, model_name) else None),
             max_retries=max_retries,
         )
         try:
@@ -273,6 +285,11 @@ class LLMClient:
                 raise self._to_app_error(exc, ctx) from exc
 
             latency = (time.perf_counter() - start) * 1000
+            if self._version_resolver is not None:
+                try:
+                    chat.model_version = self._version_resolver(ctx.provider, ctx.model, chat.model_version)
+                except Exception as exc:  # noqa: BLE001 - version metadata must never fail a request
+                    log.info("model_version_lookup_failed", provider=ctx.provider, error_type=type(exc).__name__)
             if chat.input_tokens is not None or chat.output_tokens is not None:
                 self._settle(ctx, reservation, (chat.input_tokens or 0) + (chat.output_tokens or 0))
             cost = self.pricing.cost(ctx.provider, ctx.model, chat.input_tokens, chat.output_tokens)
@@ -422,7 +439,11 @@ def get_llm_client() -> LLMClient:
     Tests override it (app.dependency_overrides) with a client that uses fake providers."""
     from app.core.config import get_settings
     from app.db.session import get_session_factory
+    from app.services.llm.model_info import ModelVersionResolver, get_ollama_info
     from app.services.llm.pricing import get_pricing
     from app.services.llm.prompts import get_prompt_registry
 
-    return LLMClient(get_settings(), get_session_factory(), get_prompt_registry(), get_pricing())
+    settings = get_settings()
+    resolver = ModelVersionResolver(get_ollama_info(settings.finetuned_base_url))
+    return LLMClient(settings, get_session_factory(), get_prompt_registry(), get_pricing(),
+                     version_resolver=resolver)

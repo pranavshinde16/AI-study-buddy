@@ -108,8 +108,22 @@ Source: `results/mcq_secondary_hf.json`.
 
 ## 4. Limits
 
-- **Domain:** trained and tested on SciQ science passages, not lecture transcripts. Transfer to real lectures is
-  measured in Phase 11 (golden set): TBD (run Phase 11).
+- **Domain:** trained and tested on SciQ science passages, not lecture transcripts. Transfer to a real lecture was
+  measured in Phase 11 on the golden set `ci_lecture` (one 10.8-minute CI lecture, 20 questions: 12 answerable,
+  8 not; judge `qwen/qwen3.8-27b`; run of 2026-11-09, [llmops_results.md](llmops_results.md) §8):
+
+  | | Base | Fine-tuned |
+  |---|---|---|
+  | Faithfulness (mean over judged answers) | 0.724 (14 answers) | 0.917 (12 answers) |
+  | Hallucination rate | 0.929 | 0.083 |
+  | Correctness, answerable questions (0 / 0.5 / 1) | 0.625 | 0.375 |
+  | Refusal accuracy, unanswerable questions | 0.50 (4 of 8) | 0.75 (6 of 8) |
+  | Near-topic questions refused | 1 of 4 | 2 of 4 |
+  | Latency p50 / p95, CPU | 23.2 s / 31.1 s | 16.2 s / 20.7 s |
+
+  On lecture text the fine-tuned model stays far closer to the excerpts and refuses more reliably than the base
+  model, but its answers are often incomplete, so it scores lower on correctness. Twenty questions on one lecture
+  is a small sample: one question moves a rate by 5 to 8 points.
 - **Length:** trained on prompts of at most 1,024 tokens. The app's prompts with 5 chunks can be longer
   (`num_ctx 4096` in the Modelfile).
 - **Licence:** SciQ is CC-BY-NC-3.0, so the model is for non-commercial use.

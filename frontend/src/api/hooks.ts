@@ -14,6 +14,7 @@ import type {
   LectureOut,
   LectureStatus,
   LectureStatusOut,
+  LlmOpsFilters,
   LoginRequest,
   RegisterRequest,
   SubmitQuizRequest,
@@ -34,6 +35,7 @@ export const keys = {
   chatSessions: (id: string) => ["lecture", id, "chat"] as const,
   chatHistory: (id: string, sessionId: string) => ["lecture", id, "chat", sessionId] as const,
   models: ["models"] as const,
+  llmops: (part: string, f?: LlmOpsFilters, extra?: string) => ["llmops", part, f ?? {}, extra ?? ""] as const,
 };
 
 /** Statuses where the pipeline is still moving, so /status is worth polling. */
@@ -261,6 +263,52 @@ export function useSendChat(id: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.chatSessions(id), exact: true });
     },
+  });
+}
+
+// ------------------------------------------------------------------ LLMOps (Phase 11)
+/** Every metric the LLMOps page shows, for one set of filters. Logs change slowly; 30 s is enough. */
+export function useLlmOps(f: LlmOpsFilters) {
+  const opts = { staleTime: 30_000 };
+  return {
+    summary: useQuery({ queryKey: keys.llmops("summary", f), queryFn: () => ep.getLlmOpsSummary(f), ...opts }),
+    latency: useQuery({ queryKey: keys.llmops("latency", f), queryFn: () => ep.getTaskLatency(f), ...opts }),
+    qaLatency: useQuery({ queryKey: keys.llmops("qa-latency", f), queryFn: () => ep.getQALatency(f), ...opts }),
+    usageTask: useQuery({ queryKey: keys.llmops("usage", f, "task"), queryFn: () => ep.getUsage(f, "task"), ...opts }),
+    usageDay: useQuery({ queryKey: keys.llmops("usage", f, "day"), queryFn: () => ep.getUsage(f, "day"), ...opts }),
+    usageLecture: useQuery({
+      queryKey: keys.llmops("usage", f, "lecture"),
+      queryFn: () => ep.getUsage(f, "lecture"),
+      ...opts,
+    }),
+    transcription: useQuery({
+      queryKey: keys.llmops("transcription", f),
+      queryFn: () => ep.getTranscriptionMetrics(f),
+      ...opts,
+    }),
+    errors: useQuery({ queryKey: keys.llmops("errors", f), queryFn: () => ep.getErrors(f), ...opts }),
+    refusals: useQuery({ queryKey: keys.llmops("refusals", f), queryFn: () => ep.getRefusals(f), ...opts }),
+    prompts: useQuery({ queryKey: keys.llmops("prompts", f), queryFn: () => ep.getPromptMetrics(f), ...opts }),
+  };
+}
+
+export function useLlmOpsFilterOptions() {
+  return useQuery({ queryKey: keys.llmops("filters"), queryFn: ep.getLlmOpsFilters, staleTime: 60_000 });
+}
+
+export function useModelRegistry() {
+  return useQuery({ queryKey: keys.llmops("models"), queryFn: ep.getModelRegistry, staleTime: 60_000 });
+}
+
+export function useEvalRuns() {
+  return useQuery({ queryKey: keys.llmops("eval-runs"), queryFn: ep.listEvalRuns, staleTime: 30_000 });
+}
+
+export function useEvalCompare(goldenSet: string | null) {
+  return useQuery({
+    queryKey: keys.llmops("eval-compare", undefined, goldenSet ?? ""),
+    queryFn: () => ep.getEvalCompare(goldenSet),
+    staleTime: 30_000,
   });
 }
 

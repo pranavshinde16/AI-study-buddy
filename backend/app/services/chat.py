@@ -69,6 +69,14 @@ def _log(db: Session, *, lecture: Lecture, user: User, endpoint: str, generator:
     db.commit()
 
 
+def _display_model(result: RagAnswer) -> str:
+    """"generator:model" shown in a reopened chat. The Ollama digest (Phase 11) is kept in
+    qa_logs/llm_calls for LLMOps but left out here, so the chat shows the same as before."""
+    if not result.model:
+        return result.generator
+    return f"{result.generator}:{result.model.split('@sha256:', 1)[0]}"
+
+
 def _run(db: Session, *, rag: RagService, indexer: LectureIndexer, settings: Settings, lecture: Lecture,
          user: User, question: str, generator: str, history: list[tuple[str, str]], endpoint: str,
          session_id: uuid.UUID | None = None) -> tuple[RagAnswer, IndexResult]:
@@ -154,7 +162,7 @@ def chat(db: Session, user: User, lecture_id: uuid.UUID, *, message: str, sessio
     db.add(user_msg)
     reply = ChatMessage(session_id=session.id, role="assistant", content=result.answer, created_at=t + timedelta(microseconds=1),
                         sources_json=[vars(s) for s in result.sources], answerable=result.answerable,
-                        model=f"{result.generator}:{result.model}" if result.model else result.generator)
+                        model=_display_model(result))
     db.add(reply)
     db.commit()
     _log(db, lecture=lecture, user=user, endpoint="chat", generator=generator, question=message,

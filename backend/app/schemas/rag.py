@@ -8,6 +8,7 @@ taken from the transcript segments of each chunk.
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -110,3 +111,8 @@ class GeneratorOut(BaseModel):
     provider: str
     model: str
     description: str
+    # Phase 11 (optional, additive): the last model string this generator's provider returned
+    # (Ollama: tag@sha256:<digest>), when it was last used, and for "finetuned" its provenance.
+    version: str | None = None
+    last_used_at: datetime | None = None
+    details: dict[str, Any] | None = None

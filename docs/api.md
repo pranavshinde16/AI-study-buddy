@@ -2,7 +2,7 @@
 
 Base URL: `http://localhost:8000/api` · interactive docs: http://localhost:8000/docs (Swagger UI) · schema: `/openapi.json`.
 
-This page covers the endpoints implemented through **Phase 7**, plus two Phase 8 additions: `GET /lectures/{id}/media` (for the transcript player) and `refusal_reason` in chat history. The JSON below shows **shapes** with placeholder values, not real outputs.
+This page covers the endpoints implemented through **Phase 7**, two Phase 8 additions (`GET /lectures/{id}/media` for the transcript player, and `refusal_reason` in chat history) and the Phase 11 LLMOps endpoints. The JSON below shows **shapes** with placeholder values, not real outputs.
 
 ## Conventions
 
@@ -41,6 +41,13 @@ This page covers the endpoints implemented through **Phase 7**, plus two Phase 8
 | GET | `/lectures/{id}/chat` | Your chat sessions for the lecture | 200 |
 | GET | `/lectures/{id}/chat/{session_id}` | Chat history with sources | 200 |
 | GET | `/models` | Answer generators for `model` (cloud, finetuned, base, configured) | 200 |
+| GET | `/llmops/summary` | KPI cards: calls, tokens, actual + equivalent cost, error rate, RTF | 200 |
+| GET | `/llmops/latency` · `/llmops/qa-latency` | p50/p95 per task (M2/M3) · end-to-end per generator (M4) | 200 |
+| GET | `/llmops/usage?group=task\|day\|lecture` | Tokens, actual and equivalent cost (M5) | 200 |
+| GET | `/llmops/transcription` | Real-time factor per lecture (M1) | 200 |
+| GET | `/llmops/errors` · `/llmops/refusals` · `/llmops/prompts` | Error / parse-failure rates · refusal split · per prompt version | 200 |
+| GET | `/llmops/filters` · `/llmops/models` | Filter values · model registry | 200 |
+| GET | `/llmops/eval/runs` · `/llmops/eval/runs/{id}` · `/llmops/eval/compare` | Evaluation runs, one run with items, cloud vs finetuned vs base | 200 |
 
 ## Auth
 
@@ -261,14 +268,38 @@ How retrieval, the threshold, refusals and generators work: [rag.md](rag.md). Th
 
 **GET `/lectures/{id}/chat`** → `[{"session_id", "title", "created_at", "messages"}]`. **GET `/lectures/{id}/chat/{session_id}`** → `{"session_id", "lecture_id", "title", "created_at", "messages": [{"id", "role", "content", "sources", "answerable", "refusal_reason", "model", "created_at"}]}`. `refusal_reason` (added in Phase 8) is `below_threshold` or `not_in_chunks` on a refused assistant message, read from `qa_logs`, and `null` otherwise, so a reopened chat can show why a question was refused.
 
-**GET `/models`** → `[{"name": "cloud", "provider": "groq", "model": "openai/gpt-oss-120b", "description": "…"}, …]`.
+**GET `/models`** → `[{"name": "cloud", "provider": "groq", "model": "openai/gpt-oss-120b", "description": "…", "version": "…", "last_used_at": "…", "details": null}, …]`. Phase 11 added the optional `version` (the last model string the provider returned; for Ollama `tag@sha256:<digest>`), `last_used_at`, and for `finetuned` `details.finetune` (base model + revision, dataset + revision, GGUF size, Hub repo; read from `finetune/results/training.json`). This endpoint only reads the database, so the Ask page stays fast.
+
+## LLMOps (Phase 11)
+
+How every metric is defined: [llmops.md](llmops.md). Metrics are **system-wide** (all users' calls) for any logged-in user.
+
+**Filters** (query parameters, all optional): `date_from`, `date_to` (UTC days, inclusive, `YYYY-MM-DD`), `task` (an `llm_calls` task), `generator` (`cloud | finetuned | base | …`: calls made with that generator's provider + model; for qa_logs metrics, that generator's questions), `include_eval` (default `false`: tasks `eval_*` from the harness are left out).
+
+**GET `/llmops/summary`**
+```json
+{ "filters": {"date_from": null, "date_to": null, "task": null, "generator": null, "include_eval": false},
+  "calls": 0, "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
+  "cost_usd": 0.0, "cost_unknown_calls": 0, "equivalent_cost_usd": 0.0, "unpriced_calls": 0,
+  "failed_calls": 0, "error_rate": 0.0, "json_invalid_calls": 0, "parse_failure_rate": 0.0,
+  "rtf_overall": 0.0, "transcriptions": 0, "questions": 0,
+  "qa_latency": {"n": 0, "p50_ms": 0.0, "p95_ms": 0.0, "mean_ms": 0.0},
+  "first_call_at": "…", "last_call_at": "…", "pricing_checked": "2026-11-06" }
+```
+The other metric endpoints return lists of rows: `/latency` `[{task, provider, model, n, p50_ms, p95_ms, mean_ms}]`; `/qa-latency` `[{generator, n, p50_ms, p95_ms, mean_ms, answered, refused_by_model, refused_by_threshold, retrieval}]`; `/usage` `[{key, label, calls, input_tokens, output_tokens, total_tokens, cost_usd, cost_unknown_calls, equivalent_cost_usd, unpriced_calls}]`; `/transcription` `{runs: [{lecture_id, title, started_at, audio_sec, processing_sec, rtf}], rtf_overall, rtf_median, …}`; `/errors` `{requests, failed, error_rate, json_invalid, by_task: […], recent: […]}`; `/refusals` `[{generator, questions, answered, below_threshold, not_in_chunks, errors, refused, refusal_rate, threshold_share_of_refusals}]`; `/prompts` `[{prompt_version, task, requests, p50_ms, p95_ms, error_rate, parse_failure_rate, mean_input_tokens, mean_output_tokens}]`.
+
+**GET `/llmops/models`** → `{"ollama_reachable", "ollama_url", "generators": [{name, provider, model, version, digest, size_bytes, available, details}], "others": [asr, embedding, eval judge, quiz grader], "prompts": [{id, version, tag}]}`. It asks Ollama for its tag list (cached 5 min).
+
+**GET `/llmops/eval/runs`** → runs, newest first (`source` = `harness` or `offline_import`, `metrics` = the run's `metrics_json`). **GET `/llmops/eval/runs/{id}`** adds `items`. **GET `/llmops/eval/compare?golden_set=`** → the latest finished harness run per generator for one golden set (default: the most recent), its `retrieval` run, and the latest `offline` SciQ runs.
+
+Errors: `401`, `422 VALIDATION_ERROR` (`date_from` after `date_to`, bad `group`), `422 UNKNOWN_GENERATOR`, `404 EVAL_RUN_NOT_FOUND`.
 
 ## Error codes
 
 | HTTP | Code | Meaning |
 |---|---|---|
 | 401 | `NOT_AUTHENTICATED`, `TOKEN_EXPIRED`, `INVALID_TOKEN`, `INVALID_CREDENTIALS`, `ACCOUNT_DISABLED` | Auth problems |
-| 404 | `NOT_FOUND`, `LECTURE_NOT_FOUND`, `MEDIA_NOT_FOUND`, `QUIZ_NOT_FOUND`, `FLASHCARD_NOT_FOUND`, `CHAT_SESSION_NOT_FOUND` | Unknown route, or not yours |
+| 404 | `NOT_FOUND`, `LECTURE_NOT_FOUND`, `MEDIA_NOT_FOUND`, `QUIZ_NOT_FOUND`, `FLASHCARD_NOT_FOUND`, `CHAT_SESSION_NOT_FOUND`, `EVAL_RUN_NOT_FOUND` | Unknown route, or not yours |
 | 409 | `EMAIL_TAKEN`, `LECTURE_NOT_READY`, `GENERATION_IN_PROGRESS`, `NOTES_NOT_GENERATED`, `INDEXING_IN_PROGRESS` | State conflicts |
 | 413 | `FILE_TOO_LARGE` | Upload over `MAX_UPLOAD_MB` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | Not MP3/WAV/MP4/M4A or no audio track |

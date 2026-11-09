@@ -618,8 +618,8 @@ Then draft the technical report as a Word document, using only real results.
 - [x] Phase 7: RAG & chat
 - [x] Phase 8: Frontend
 - [ ] Phase 9: Learning features
-- [ ] Phase 10: Fine-tuning
-- [ ] Phase 11: LLMOps & eval
+- [x] Phase 10: Fine-tuning
+- [x] Phase 11: LLMOps & eval
 - [ ] Phase 12: Docker & deploy
 - [ ] Phase 13: Testing & deliverables
 

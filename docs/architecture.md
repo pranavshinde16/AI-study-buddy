@@ -1,6 +1,6 @@
 # Architecture
 
-This page describes the backend as built through **Phase 7** (upload, transcription, search indexing, summary and notes, quizzes with grading and mastery, flashcards, grounded Q&A and chat). Parts that later phases add are marked *(planned)*. The full design and phase plan live in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
+This page describes the backend as built through **Phase 7** (upload, transcription, search indexing, summary and notes, quizzes with grading and mastery, flashcards, grounded Q&A and chat), plus the Phase 10 SLM serving and the Phase 11 LLMOps metrics and evaluation harness ([llmops.md](llmops.md)). Parts that later phases add are marked *(planned)*. The full design and phase plan live in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
 
 ## 1. System overview
 
@@ -162,6 +162,10 @@ What the LLM client does for each request:
 5. Validates JSON with Pydantic; if invalid, makes one repair request showing the model its errors.
 6. Writes one `llm_calls` row per request sent: task, provider, model, model version, prompt version, attempt, tokens, latency, cost, status, error type.
 
+**Model versions (Phase 11).** `llm_calls.model_version` is the model string the provider returned. For Ollama it is extended with the local model's digest (`study-buddy-qwen@sha256:…`, from `GET /api/tags`, cached for 5 minutes; a failed lookup never fails the request). Embedding calls store `BAAI/bge-small-en-v1.5@<Hugging Face commit>`. Groq's speech-to-text response has no model field, so ASR rows keep `null`. `reasoning_effort` is sent only to reasoning models (gpt-oss, gpt-5, o-series).
+
+The LLMOps dashboard (`/api/llmops/*`, page **LLMOps**) computes every metric from these rows at request time: [llmops.md](llmops.md).
+
 Cost comes from `backend/config/pricing.yaml`: `free_tier` and `local` providers record `0.0`; paid providers multiply real token counts (or audio minutes for ASR) by the listed price. An unknown paid model records `null`, never a guess.
 
 ## 6. Data stored
@@ -182,7 +186,7 @@ Cost comes from `backend/config/pricing.yaml`: `free_tier` and `local` providers
 | `llm_calls` | LLM, ASR and embedding clients | one row per model request (kept when a lecture is deleted: `lecture_id` set to NULL) |
 | `pipeline_runs` | pipeline | one row per stage with duration and audio seconds |
 
-The eval tables exist from the Phase 3 migration and are filled in Phase 11.
+| `eval_runs`, `eval_items` | eval harness (`python -m eval.run`), offline import | Phase 11: one run per generator (+ one retrieval run) per golden set, per-question results; Phase 10 SciQ files imported as `source=offline_import`. See [llmops.md](llmops.md) |
 
 Files on disk (`STORAGE_DIR`, gitignored):
 
@@ -211,6 +215,8 @@ All settings are read by `app/core/config.py` from environment variables or the 
 | `CHUNK_TARGET_WORDS`, `CHUNK_MAX_SEC`, `CHUNK_OVERLAP` | 350, 90, 0.15 | Retrieval chunk size and overlap |
 | `RAG_TOP_K`, `RAG_MIN_SCORE` | 5, 0.50 | Chunks per question; refusal threshold (first filter; judgement call from the calibration, see [rag.md](rag.md#3-calibrating-rag_min_score)) |
 | `ANSWER_GENERATORS` | `{}` | Extra answer generators, added by configuration only |
+| `EVAL_JUDGE_PROVIDER`, `EVAL_JUDGE_MODEL` | `groq`, `qwen/qwen3.8-27b` | LLM-as-judge of the eval harness (Phase 11); deliberately not the cloud generator's model |
+| `FINETUNE_RESULTS_DIR`, `FINETUNED_HUB_REPO` | `../finetune/results`, blank | Where the model registry reads `training.json`; the Hub repo shown next to it |
 
 ## 8. Testing approach
 

@@ -5,7 +5,7 @@ import uuid
 
 from fastapi import APIRouter
 
-from app.api.deps import AppSettings, CurrentUser, DbSession, Generators, Indexer, Rag
+from app.api.deps import AppSettings, CurrentUser, DbSession, Generators, Indexer, ModelRegistry, Rag
 from app.schemas.errors import error_responses
 from app.schemas.rag import (
     AskRequest,
@@ -81,6 +81,8 @@ def history(lecture_id: uuid.UUID, session_id: uuid.UUID, user: CurrentUser, db:
     summary="Answer generators you can pass as `model` to /ask and /chat",
     responses=error_responses(401),
 )
-def models(user: CurrentUser, generators: Generators) -> list[GeneratorOut]:
-    return [GeneratorOut(name=g.name, provider=g.provider, model=g.model, description=g.description)
+def models(user: CurrentUser, db: DbSession, generators: Generators, registry: ModelRegistry) -> list[GeneratorOut]:
+    versions = registry.generator_versions(db)  # DB only (no Ollama call), so the Ask page stays fast
+    return [GeneratorOut(name=g.name, provider=g.provider, model=g.model, description=g.description,
+                         **versions.get(g.name, {}))
             for g in generators.all()]

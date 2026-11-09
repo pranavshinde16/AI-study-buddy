@@ -157,7 +157,7 @@ The second check shows the answer is taken from the text. It does not show that 
 ## Intended use and limits
 
 - **Intended use:** answering a student's question from given lecture excerpts, in the AI Study Buddy app. Non-commercial (SciQ licence).
-- **Domain:** trained on school-level science passages, not on lecture transcripts. Transfer to transcripts is measured separately (Phase 11 golden set: TBD (run Phase 11)).
+- **Domain:** trained on school-level science passages, not on lecture transcripts. Transfer to transcripts was measured in Phase 11 on the golden set `ci_lecture` (one CI lecture, 12 answerable + 8 unanswerable questions, judge `qwen/qwen3.8-27b`, 2026-11-09): fine-tuned vs base faithfulness 0.917 vs 0.724, hallucination rate 0.083 vs 0.929, correctness 0.375 vs 0.625, refusal accuracy 0.75 vs 0.50 (details: `docs/finetuning.md` §4 and `docs/llmops_results.md` §8). The fine-tuned model stays closer to the excerpts but often answers incompletely.
 - **Length:** trained on prompts up to 1,024 tokens; the app's prompts can be longer (Modelfile `num_ctx 4096`).
 - **Behaviour:** it can still be wrong, and it can refuse answerable questions or answer unanswerable ones (see the refusal confusion above).
 - **MCQ:** not reliable enough to use without validation (duplicate options, above).

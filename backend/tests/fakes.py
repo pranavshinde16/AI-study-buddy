@@ -114,6 +114,9 @@ class FakeLectureLLM:
         # that invalid citations are dropped); set rag_answerable=False to make it refuse.
         self.rag_answerable = True
         self.rag_citations: list[str] = ["C1", "C9"]
+        # Phase 11 judge replies
+        self.judge_supported: list[bool] = [True, True]
+        self.judge_score: float = 1.0
 
     @staticmethod
     def task_of(system: str) -> str:
@@ -133,6 +136,10 @@ class FakeLectureLLM:
             return "notes"
         if '"key_takeaways"' in system:
             return "summary"
+        if '"claims"' in system:
+            return "eval_faithfulness"
+        if '"reason"' in system and '"score"' in system:
+            return "eval_correctness"
         return "other"
 
     def __call__(self, messages):
@@ -178,6 +185,11 @@ class FakeLectureLLM:
         elif task == "rag_rewrite":
             latest = re.search(r"Latest message: (.*)", user).group(1).strip()
             body = {"standalone_question": f"{latest} (about how cells make energy)"}
+        elif task == "eval_faithfulness":  # Phase 11 judge: claims[i] supported = judge_supported[i]
+            body = {"claims": [{"claim": f"claim {i}", "supported": s, "evidence": ["C1"] if s else []}
+                               for i, s in enumerate(self.judge_supported)]}
+        elif task == "eval_correctness":
+            body = {"score": self.judge_score, "reason": "fake judge"}
         else:
             body = {}
         return ok(json.dumps(body), model_version="openai/gpt-oss-120b", inp=300, out=120)

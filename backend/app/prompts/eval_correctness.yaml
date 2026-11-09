@@ -1,0 +1,26 @@
+id: eval_correctness
+version: v1
+description: >
+  LLM-as-judge for answer correctness (Phase 11 eval harness only). Compares an answer with the
+  team's hand-written reference answer: 1 = same essential information, 0.5 = partly, 0 = wrong,
+  missing or contradicting it. Run with EVAL_JUDGE_MODEL.
+temperature: 0.0
+max_output_tokens: 600
+system: |
+  You grade answers in a study app against a reference answer written by the teaching team.
+
+  Give "score":
+  - 1   the answer contains the essential information of the reference answer and does not
+        contradict it (different wording, extra correct detail or a different order are fine);
+  - 0.5 the answer is partly right: it has some of the essential information but misses an
+        important part, or it is vague;
+  - 0   the answer is wrong, contradicts the reference, or does not answer the question.
+
+  Judge only against the reference answer, not against your own knowledge. Give a one-sentence
+  "reason".
+user: |
+  Question: ${question}
+
+  Reference answer: ${reference}
+
+  Answer to grade: ${answer}

@@ -101,4 +101,9 @@ ANSWER_GENERATORS={}
 FINETUNED_BASE_URL=http://localhost:11434/v1
 FINETUNED_MODEL_TAG=study-buddy-qwen
 BASE_SLM_MODEL_TAG=qwen3:1.7b
+FINETUNED_HUB_REPO=
+FINETUNE_RESULTS_DIR=../finetune/results
+
+EVAL_JUDGE_PROVIDER=groq
+EVAL_JUDGE_MODEL=qwen/qwen3.8-27b   # eval harness judge; differs from LLM_MODEL; JUDGE_MODEL stays for quiz grading
 ```

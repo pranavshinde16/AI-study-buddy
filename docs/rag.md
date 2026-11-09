@@ -72,6 +72,13 @@ A refusal returns up to 3 closest chunks with `cited: false`, so a student can s
 
 It is based on 20 questions from one 5-minute lecture, so it must be **re-checked with the golden set in Phase 11**. Override it per deployment with `RAG_MIN_SCORE` in `.env`.
 
+**Phase 11 re-check (golden set `ci_lecture`, 2026-11-09, [llmops_results.md](llmops_results.md) §8).** Top scores:
+on-topic 0.620–0.760 (12 questions), near-topic 0.598–0.624 (4), off-topic 0.362–0.519 (4). At 0.50, no answerable
+question is refused by the threshold; 3 of 4 off-topic questions are refused without an LLM call; all near-topic
+questions and one off-topic question (0.519) go to the model. The highest near-topic score is above the lowest
+on-topic score (gap −0.004), so no threshold alone separates them, which confirms the two-layer design. **0.50 is
+kept**; the result was reported to the team, and the value is not changed by the evaluation.
+
 ## 4. Chat
 
 - **Turns:** `POST /lectures/{id}/chat` without `session_id` starts a session. Each turn stores the user message and the answer, with its sources, in `chat_messages`.

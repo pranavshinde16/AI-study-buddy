@@ -12,7 +12,21 @@ import type {
   ChatResponse,
   ChatSessionOut,
   DeckOut,
+  ErrorsOut,
+  EvalCompareOut,
+  EvalRunOut,
+  FilterOptionsOut,
   FlashcardOut,
+  LlmOpsFilters,
+  LlmOpsSummaryOut,
+  ModelRegistryOut,
+  PromptMetricsOut,
+  QALatencyOut,
+  RefusalsOut,
+  TaskLatencyOut,
+  TranscriptionOut,
+  UsageGroup,
+  UsageRowOut,
   GenerateQuizRequest,
   GeneratorOut,
   QuizOut,
@@ -172,4 +186,71 @@ export async function getChatHistory(id: string, sessionId: string): Promise<Cha
 
 export async function listModels(): Promise<GeneratorOut[]> {
   return (await api.get<GeneratorOut[]>("/models")).data;
+}
+
+// ------------------------------------------------------------------ LLMOps (Phase 11)
+/** Drops empty filter values so the backend sees only the ones that are set. */
+export function filterParams(f: LlmOpsFilters): Record<string, string | boolean> {
+  const out: Record<string, string | boolean> = {};
+  if (f.date_from) out.date_from = f.date_from;
+  if (f.date_to) out.date_to = f.date_to;
+  if (f.task) out.task = f.task;
+  if (f.generator) out.generator = f.generator;
+  if (f.include_eval) out.include_eval = true;
+  return out;
+}
+
+export async function getLlmOpsSummary(f: LlmOpsFilters): Promise<LlmOpsSummaryOut> {
+  return (await api.get<LlmOpsSummaryOut>("/llmops/summary", { params: filterParams(f) })).data;
+}
+
+export async function getLlmOpsFilters(): Promise<FilterOptionsOut> {
+  return (await api.get<FilterOptionsOut>("/llmops/filters")).data;
+}
+
+export async function getTaskLatency(f: LlmOpsFilters): Promise<TaskLatencyOut[]> {
+  return (await api.get<TaskLatencyOut[]>("/llmops/latency", { params: filterParams(f) })).data;
+}
+
+/** qa_logs metrics take only the date range and the generator. */
+function qaParams(f: LlmOpsFilters) {
+  return filterParams({ date_from: f.date_from, date_to: f.date_to, generator: f.generator });
+}
+
+export async function getQALatency(f: LlmOpsFilters): Promise<QALatencyOut[]> {
+  return (await api.get<QALatencyOut[]>("/llmops/qa-latency", { params: qaParams(f) })).data;
+}
+
+export async function getUsage(f: LlmOpsFilters, group: UsageGroup): Promise<UsageRowOut[]> {
+  return (await api.get<UsageRowOut[]>("/llmops/usage", { params: { ...filterParams(f), group } })).data;
+}
+
+export async function getTranscriptionMetrics(f: LlmOpsFilters): Promise<TranscriptionOut> {
+  const params = filterParams({ date_from: f.date_from, date_to: f.date_to });
+  return (await api.get<TranscriptionOut>("/llmops/transcription", { params })).data;
+}
+
+export async function getErrors(f: LlmOpsFilters): Promise<ErrorsOut> {
+  return (await api.get<ErrorsOut>("/llmops/errors", { params: filterParams(f) })).data;
+}
+
+export async function getRefusals(f: LlmOpsFilters): Promise<RefusalsOut[]> {
+  return (await api.get<RefusalsOut[]>("/llmops/refusals", { params: qaParams(f) })).data;
+}
+
+export async function getPromptMetrics(f: LlmOpsFilters): Promise<PromptMetricsOut[]> {
+  return (await api.get<PromptMetricsOut[]>("/llmops/prompts", { params: filterParams(f) })).data;
+}
+
+export async function getModelRegistry(): Promise<ModelRegistryOut> {
+  return (await api.get<ModelRegistryOut>("/llmops/models")).data;
+}
+
+export async function listEvalRuns(): Promise<EvalRunOut[]> {
+  return (await api.get<EvalRunOut[]>("/llmops/eval/runs")).data;
+}
+
+export async function getEvalCompare(goldenSet?: string | null): Promise<EvalCompareOut> {
+  const params = goldenSet ? { golden_set: goldenSet } : {};
+  return (await api.get<EvalCompareOut>("/llmops/eval/compare", { params })).data;
 }

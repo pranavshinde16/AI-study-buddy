@@ -21,6 +21,7 @@ pyjwt==2.15.1               # JSON Web Tokens (replaces python-jose from the pla
 structlog==26.1.0           # structured JSON logs
 pyyaml==6.0.3               # prompt registry + pricing.yaml
 openai==3.37.0              # OpenAI-compatible client, used for Groq / OpenAI / Ollama via base_url
+jiter==0.18.0               # openai's JSON parser; pinned below 0.19.0, whose Windows binary Smart App Control blocks
 
 # Local embeddings (Phase 6 short-answer grading fallback; Phase 7 RAG). Free, no API key.
 # The model (BAAI/bge-small-en-v1.5, ~130 MB) downloads on first use, not at install or startup.

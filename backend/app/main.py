@@ -10,7 +10,7 @@ import structlog
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import auth, chat, flashcards, health, lectures, quizzes
+from app.api.routers import auth, chat, flashcards, health, lectures, llmops, quizzes
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
@@ -72,6 +72,7 @@ def create_app() -> FastAPI:
     api.include_router(quizzes.router)
     api.include_router(flashcards.router)
     api.include_router(chat.router)
+    api.include_router(llmops.router)
     app.include_router(api)
 
     return app

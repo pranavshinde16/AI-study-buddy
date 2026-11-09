@@ -43,6 +43,36 @@ class PricingTable(BaseModel):
             return None
         return round((input_tokens * price.input + output_tokens * price.output) / 1_000_000, 8)
 
+    def equivalent_cost(self, provider: str, model: str, input_tokens: int | None,
+                        output_tokens: int | None) -> float | None:
+        """What the call WOULD cost at the provider's listed paid prices (Phase 11, metric M5).
+
+        free_tier -> priced with the reference prices in the file (actual cost stays 0)
+        local     -> 0.0 (your own machine)
+        paid      -> same as cost()
+        None when the model has no listed price or the token counts are missing (never a guess).
+        """
+        p = self.providers.get(provider)
+        if p is None:
+            return None
+        if p.billing == "local":
+            return 0.0
+        price = p.models.get(model)
+        if price is None or input_tokens is None or output_tokens is None:
+            return None
+        return round((input_tokens * price.input + output_tokens * price.output) / 1_000_000, 8)
+
+    def equivalent_audio_cost(self, provider: str, model: str, audio_sec: float | None) -> float | None:
+        p = self.providers.get(provider)
+        if p is None:
+            return None
+        if p.billing == "local":
+            return 0.0
+        per_min = p.audio_models.get(model)
+        if per_min is None or audio_sec is None:
+            return None
+        return round(audio_sec / 60.0 * per_min, 8)
+
     def audio_cost(self, provider: str, model: str, audio_sec: float | None) -> float | None:
         """Speech-to-text cost from the real audio length; None when unknown."""
         p = self.providers.get(provider)

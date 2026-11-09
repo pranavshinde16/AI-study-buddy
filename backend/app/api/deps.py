@@ -20,6 +20,8 @@ from app.services.generation.summary import LectureGenerator, get_lecture_genera
 from app.services.grading import ShortAnswerGrader, get_short_answer_grader
 from app.services.indexing import LectureIndexer, get_indexer
 from app.services.llm.generators import GeneratorRegistry, get_generator_registry
+from app.services.llm.pricing import PricingTable, get_pricing
+from app.services.model_registry import ModelRegistryService
 from app.services.rag import RagService, get_rag_service
 from app.services.media import Media, media_from_settings
 from app.services.storage import StorageService, storage_from_settings
@@ -95,6 +97,21 @@ def get_generators_dep() -> GeneratorRegistry:
     return get_generator_registry()
 
 
+def get_pricing_dep() -> PricingTable:
+    return get_pricing()
+
+
+def get_model_registry_dep(
+    settings: AppSettings, generators: Annotated[GeneratorRegistry, Depends(get_generators_dep)]
+) -> ModelRegistryService:
+    """Overridden in tests with a fake Ollama lookup (no network)."""
+    from app.services.llm.model_info import get_ollama_info
+    from app.services.llm.prompts import get_prompt_registry
+
+    return ModelRegistryService(settings, generators, get_prompt_registry(),
+                                get_ollama_info(settings.finetuned_base_url))
+
+
 def get_pipeline_dep() -> Pipeline:
     """Overridden in tests with a pipeline that uses the test DB and a fake ASR provider."""
     return get_pipeline()
@@ -110,3 +127,5 @@ FlashcardGen = Annotated[FlashcardGenerator, Depends(get_flashcard_generator_dep
 Rag = Annotated[RagService, Depends(get_rag_dep)]
 Indexer = Annotated[LectureIndexer, Depends(get_indexer_dep)]
 Generators = Annotated[GeneratorRegistry, Depends(get_generators_dep)]
+Pricing = Annotated[PricingTable, Depends(get_pricing_dep)]
+ModelRegistry = Annotated[ModelRegistryService, Depends(get_model_registry_dep)]

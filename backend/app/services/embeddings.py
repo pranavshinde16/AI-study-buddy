@@ -20,6 +20,7 @@ import time
 import uuid
 from collections.abc import Callable, Sequence
 from functools import lru_cache
+from pathlib import Path
 from typing import Protocol
 
 import structlog
@@ -80,10 +81,37 @@ class SentenceTransformerEmbedder:
     def loaded(self) -> bool:
         return self._model is not None
 
+    @property
+    def revision(self) -> str | None:
+        """Hugging Face commit of the loaded model (Phase 11 model-version tracking), read from
+        the loaded model's card data, else from the local HF cache's refs/main. No network."""
+        if self._model is not None:
+            rev = getattr(getattr(self._model, "model_card_data", None), "base_model_revision", None)
+            if rev:
+                return str(rev)
+        return cached_revision(self.model_name)
+
     def encode(self, texts: list[str]) -> list[list[float]]:
         model = self._load()
         vectors = model.encode(texts, normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=False)
         return [[float(x) for x in v] for v in vectors]
+
+
+def cached_revision(model_name: str) -> str | None:
+    """The commit hash in ~/.cache/huggingface/hub/models--org--name/refs/main, if present."""
+    try:
+        from huggingface_hub import constants
+
+        refs = Path(constants.HF_HUB_CACHE) / ("models--" + model_name.replace("/", "--")) / "refs" / "main"
+        return refs.read_text(encoding="utf-8").strip() or None if refs.is_file() else None
+    except Exception:  # noqa: BLE001 - metadata only
+        return None
+
+
+def model_version_of(embedder: "Embedder") -> str:
+    """llm_calls.model_version for an embedding call: "<model>@<hf commit>" when known."""
+    rev = getattr(embedder, "revision", None)
+    return f"{embedder.model_name}@{rev}" if rev else embedder.model_name
 
 
 def cosine(a: Sequence[float], b: Sequence[float]) -> float:
@@ -176,7 +204,7 @@ class EmbeddingClient:
             task=task,
             provider=PROVIDER,
             model=model,
-            model_version=model,
+            model_version=model_version_of(self.embedder) if status == "ok" else model,
             attempt=1,
             latency_ms=round(latency_ms, 2) if latency_ms is not None else None,
             cost_usd=self.pricing.cost(PROVIDER, model, None, None),

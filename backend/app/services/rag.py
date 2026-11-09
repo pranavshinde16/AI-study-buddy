@@ -59,6 +59,16 @@ class Source:
 
 
 @dataclass
+class RetrievedChunk:
+    label: str
+    chunk_idx: int
+    start: float
+    end: float
+    score: float
+    text: str
+
+
+@dataclass
 class RagAnswer:
     answer: str
     answerable: bool
@@ -79,6 +89,9 @@ class RagAnswer:
     output_tokens: int = 0
     citations_dropped: list[str] = field(default_factory=list)
     citation_check: str = "ok"  # ok | none_valid | n/a
+    # Every retrieved chunk (C1..Ck, full text), for the eval harness (faithfulness is judged
+    # against exactly what the model saw). Not part of the API response.
+    retrieved: list["RetrievedChunk"] = field(default_factory=list)
 
     def meta(self) -> dict[str, Any]:
         return {
@@ -141,8 +154,9 @@ class RagService:
 
     # ------------------------------------------------------------------ steps
 
-    def retrieve(self, lecture_id: uuid.UUID, question: str, user_id: uuid.UUID | None = None) -> list[Hit]:
-        [vector] = self.embeddings.embed_queries([question], task="rag_query", lecture_id=lecture_id, user_id=user_id)
+    def retrieve(self, lecture_id: uuid.UUID, question: str, user_id: uuid.UUID | None = None,
+                 *, task: str = "rag_query") -> list[Hit]:
+        [vector] = self.embeddings.embed_queries([question], task=task, lecture_id=lecture_id, user_id=user_id)
         hits = self.store.query(lecture_id, vector, self.settings.rag_top_k)
         return sorted(hits, key=lambda h: h.score, reverse=True)
 
@@ -166,7 +180,10 @@ class RagService:
         question: str,
         generator: str,
         history: Sequence[tuple[str, str]] = (),
+        task_prefix: str = "",
     ) -> RagAnswer:
+        """`task_prefix` (e.g. "eval_") renames the logged llm_calls tasks (eval_rag_query,
+        eval_rag_answer) so evaluation traffic stays out of the live-traffic metrics."""
         t0 = time.perf_counter()
         gen = self.generators.get(generator)  # unknown name -> 422 before any work
         calls = in_tok = out_tok = 0
@@ -180,16 +197,19 @@ class RagService:
             calls, in_tok, out_tok = calls + len(r.call_ids), in_tok + r.input_tokens, out_tok + r.output_tokens
 
         t1 = time.perf_counter()
-        hits = self.retrieve(lecture_id, query, user_id)
+        hits = self.retrieve(lecture_id, query, user_id, task=f"{task_prefix}rag_query")
         retrieval_ms = round((time.perf_counter() - t1) * 1000, 1)
         scores = [round(h.score, 4) for h in hits]
         top = scores[0] if scores else None
+        retrieved = [RetrievedChunk(_label(i), int(h.metadata.get("idx", -1)), float(h.metadata["start"]),
+                                    float(h.metadata["end"]), round(h.score, 4), h.text.strip())
+                     for i, h in enumerate(hits)]
 
         def done(**kw: Any) -> RagAnswer:
             return RagAnswer(question=question, rewritten_question=rewritten, top_score=top, scores=scores,
                              generator=gen.name, retrieval_ms=retrieval_ms,
                              latency_ms=round((time.perf_counter() - t0) * 1000, 1),
-                             llm_calls=calls, input_tokens=in_tok, output_tokens=out_tok, **kw)
+                             llm_calls=calls, input_tokens=in_tok, output_tokens=out_tok, retrieved=retrieved, **kw)
 
         closest = [_source(_label(i), h, False) for i, h in enumerate(hits[:CLOSEST_ON_REFUSAL])]
         if top is None or top < self.settings.rag_min_score:
@@ -199,7 +219,7 @@ class RagService:
 
         labels = [_label(i) for i in range(len(hits))]
         context = "\n\n".join(f"[{lbl}] {h.text.strip()}" for lbl, h in zip(labels, hits))
-        r = gen.complete(task="rag_answer", prompt_id="rag_answer", schema=RagAnswerOut,
+        r = gen.complete(task=f"{task_prefix}rag_answer", prompt_id="rag_answer", schema=RagAnswerOut,
                          variables={"title": title, "question": query, "chunks": context},
                          lecture_id=lecture_id, user_id=user_id)
         calls, in_tok, out_tok = calls + len(r.call_ids), in_tok + r.input_tokens, out_tok + r.output_tokens
